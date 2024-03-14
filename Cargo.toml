@@ -1,0 +1,10 @@
+[package]
+name = "mmspellbook"
+edition = '2021'
+authors = ["CocytusDEDI"]
+description = "MMSpellbook (Magic Modelling Spellbook) is a physics engine addon which models a physics realistic magic system."
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
