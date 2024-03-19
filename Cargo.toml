@@ -9,3 +9,8 @@ description = "MMSpellbook (Magic Modelling Spellbook) is a physics engine addon
 [dependencies]
 serde_json = "1.0.114"
 serde = {version = "1", features = ["derive"]}
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
