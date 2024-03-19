@@ -10,7 +10,6 @@ use serde::{Serialize, Deserialize};
 // Like charges repell (Magic particles repell each other, making it hard to compress magic)
 // Thus magic capacity is directly proportional to magical negative charge of a person
 // Magic isn't a particle and thus can't be collected by running though magic
-// Either provides charge to
 
 const MASS_TO_ENERGY_CONSTANT: f64 = 7.1;
 
