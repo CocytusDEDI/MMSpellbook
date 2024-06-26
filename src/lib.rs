@@ -10,7 +10,9 @@ fn get_component(component_call: &str) -> Result<(String, Vec<Parameter>), &'sta
     // Looping through component_call to get component_name
     for character in component_call.chars() {
         if character == '(' {
-            if character_count == 0 {
+            if character == ' '{
+                continue;
+            } else if character == ',' {
                 return Err("Invalid component: Must begin with letters")
             }
             found_opening_bracket = true;
