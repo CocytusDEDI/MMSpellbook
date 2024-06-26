@@ -1,2 +1,2 @@
 # MMSpellbook
-MMSpellbook (Magic Modelling Spellbook) is a physics engine addon which models a physics realistic magic system.
+MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows for the creation of custom spells

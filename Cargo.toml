@@ -1,16 +1,10 @@
 [package]
 name = "mmspellbook"
-edition = '2021'
+edition = "2021"
 authors = ["CocytusDEDI"]
-description = "MMSpellbook (Magic Modelling Spellbook) is a physics engine addon which models a physics realistic magic system."
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows for the creation of custom spells"
 
 [dependencies]
-serde_json = "1.0.114"
-serde = {version = "1", features = ["derive"]}
 
 [profile.release]
-strip = true
 lto = true
-codegen-units = 1
