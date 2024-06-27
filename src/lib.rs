@@ -10,7 +10,7 @@ fn get_component(component_call: &str) -> Result<(String, Vec<Parameter>), &'sta
     // Looping through component_call to get component_name
     for character in component_call.chars() {
         if character == '(' {
-            if character == ' '{
+            if character == ' ' {
                 continue;
             } else if character == ',' {
                 return Err("Invalid component: Must begin with letters")
@@ -46,6 +46,7 @@ enum Parameter {
     Boolean(bool),
 }
 
+// Turns a string in the form "parameter, parameter, ..." into a vector of type Parameter
 fn collect_parameters(parameters_string: &str) -> Result<Vec<Parameter>, &'static str> {
     let mut parameter = String::new();
     let mut parameters: Vec<Parameter> = vec![];
@@ -74,7 +75,10 @@ fn collect_parameters(parameters_string: &str) -> Result<Vec<Parameter>, &'stati
     return Ok(parameters)
 }
 
+// Turns a string into a Parameter datatype
 fn parse_parameter(parameter: &str) -> Result<Parameter, &'static str> {
+    // Attempts to convert string into datatypes until one is successful
+    
     if let Ok(value) = parameter.parse::<i32>() {
         return Ok(Parameter::Integer(value))
     }
@@ -88,6 +92,7 @@ fn parse_parameter(parameter: &str) -> Result<Parameter, &'static str> {
     }
 
     if let Ok(value) = parameter.parse::<String>() {
+        // Checking if string has not allowed characters (any non alphabetic character)
         if !value.chars().all(char::is_alphabetic) {
             return Err("Invalid parameter: Strings must only contain letters")
         }
