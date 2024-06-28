@@ -5,6 +5,8 @@ authors = ["CocytusDEDI"]
 description = "MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows for the creation of custom spells"
 
 [dependencies]
+serde_json = "1.0"
+serde = "1.0"
 
 [profile.release]
 lto = true
