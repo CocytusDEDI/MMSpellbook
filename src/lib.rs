@@ -1,5 +1,6 @@
 use godot::prelude::*;
-use godot::engine::Node3D;
+use godot::classes::CharacterBody3D;
+use godot::classes::ICharacterBody3D;
 
 struct MyExtension;
 
@@ -9,15 +10,15 @@ unsafe impl ExtensionLibrary for MyExtension {}
 mod spelltranslator;
 
 #[derive(GodotClass)]
-#[class(base=Node3D)]
+#[class(base=CharacterBody3D)]
 struct Spell {
-    base: Base<Node3D>,
+    base: Base<CharacterBody3D>,
     energy: f64
 }
 
 #[godot_api]
-impl INode3D for Spell {
-    fn init(base: Base<Node3D>) -> Self {
+impl ICharacterBody3D for Spell {
+    fn init(base: Base<CharacterBody3D>) -> Self {
         Self {
             base,
             energy: 0.0
