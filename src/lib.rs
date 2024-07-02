@@ -39,6 +39,17 @@ impl ICharacterBody3D for Spell {
     }
 }
 
-fn spell_virtual_machine(instructions: Vec<Vec<u8>>) {
+fn spell_virtual_machine(spell: &mut Spell, instructions: Vec<Vec<u8>>) {
+    for instruction in instructions {
+        if let Some((&opcode, paramaters)) = instruction.split_first() {
+            match opcode {
+                0 => example_function(spell, paramaters),
+                _ => panic!()
+            }
+        }
+    }
+}
+
+fn example_function(spell: &mut Spell, parameters: &[u8]) {
 
 }
