@@ -66,6 +66,7 @@ impl Spell {
             // Cloning here is exponsive and could be changed
             0 => self.ready_instructions.clone(),
             1 => self.process_instructions.clone(),
+            // ToDo: Make up mind about to panic! or not to panic!
             _ => panic!("Not valid instruction call")
         } {
             if let Some((&component, parameters)) = instruction.split_first() {
