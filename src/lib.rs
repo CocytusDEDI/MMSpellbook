@@ -63,6 +63,7 @@ lazy_static! {
 impl Spell {
     fn spell_virtual_machine(&mut self, called_from: u8) {
         for instruction in match called_from {
+            // Cloning here is exponsive and could be changed
             0 => self.ready_instructions.clone(),
             1 => self.process_instructions.clone(),
             _ => panic!("Not valid instruction call")
@@ -78,4 +79,5 @@ impl Spell {
     }
 }
 
+// ToDo: Add in energy useage for each component called and use the efficiency of each component
 fn use_energy(spell: &mut Spell, component: u8) {}
