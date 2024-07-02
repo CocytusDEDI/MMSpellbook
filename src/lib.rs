@@ -1,6 +1,6 @@
 use godot::prelude::*;
-use godot::classes::CharacterBody3D;
-use godot::classes::ICharacterBody3D;
+use godot::classes::Area3D;
+use godot::classes::IArea3D;
 
 struct MyExtension;
 
@@ -10,9 +10,9 @@ unsafe impl ExtensionLibrary for MyExtension {}
 mod spelltranslator;
 
 #[derive(GodotClass)]
-#[class(base=CharacterBody3D)]
+#[class(base=Area3D)]
 struct Spell {
-    base: Base<CharacterBody3D>,
+    base: Base<Area3D>,
     energy: f64,
     ready_instructions: Vec<Vec<u8>>,
     process_instructions: Vec<Vec<u8>>
@@ -20,8 +20,8 @@ struct Spell {
 
 
 #[godot_api]
-impl ICharacterBody3D for Spell {
-    fn init(base: Base<CharacterBody3D>) -> Self {
+impl IArea3D for Spell {
+    fn init(base: Base<Area3D>) -> Self {
         Self {
             base,
             energy: 0.0,
