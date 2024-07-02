@@ -1,6 +1,12 @@
 use godot::prelude::*;
 use godot::classes::Area3D;
 use godot::classes::IArea3D;
+use godot::classes::CollisionShape3D;
+use godot::classes::SphereShape3D;
+use godot::classes::CsgSphere3D;
+use godot::classes::Shape3D;
+use lazy_static::lazy_static;
+use std::collections::HashMap;
 
 struct MyExtension;
 
@@ -8,6 +14,7 @@ struct MyExtension;
 unsafe impl ExtensionLibrary for MyExtension {}
 
 mod spelltranslator;
+mod component_functions;
 
 #[derive(GodotClass)]
 #[class(base=Area3D)]
@@ -31,25 +38,44 @@ impl IArea3D for Spell {
     }
 
     fn ready(&mut self) {
-        // Insert code here dynamically
+        let mut collision_shape: Gd<CollisionShape3D> = CollisionShape3D::new_alloc();
+        let shape = SphereShape3D::new_gd();
+        collision_shape.set_shape(shape.upcast::<Shape3D>());
+        self.base_mut().add_child(collision_shape.upcast());
+        self.base_mut().add_child(CsgSphere3D::new_alloc().upcast());
+
+        self.spell_virtual_machine(0);
     }
 
     fn physics_process(&mut self, delta: f64) {
-        // Insert code here dynamically
+        self.spell_virtual_machine(1)
     }
 }
 
-fn spell_virtual_machine(spell: &mut Spell, instructions: Vec<Vec<u8>>) {
-    for instruction in instructions {
-        if let Some((&opcode, paramaters)) = instruction.split_first() {
-            match opcode {
-                0 => example_function(spell, paramaters),
-                _ => panic!()
+lazy_static! {
+    static ref COMPONENT_MAP: HashMap<u8, fn(&mut Spell, &[u8])> = {
+        let mut component_map = HashMap::new();
+        component_map.insert(0, component_functions::example_function as fn(&mut Spell, &[u8]));
+        return component_map
+    };
+}
+
+impl Spell {
+    fn spell_virtual_machine(&mut self, called_from: u8) {
+        for instruction in match called_from {
+            0 => self.ready_instructions.clone(),
+            1 => self.process_instructions.clone(),
+            _ => panic!("Not valid instruction call")
+        } {
+            if let Some((&component, parameters)) = instruction.split_first() {
+                if let Some(&function) = COMPONENT_MAP.get(&component) {
+                    function(self, parameters);
+                } else {
+                    panic!("Unknown component");
+                }
             }
         }
     }
 }
 
-fn example_function(spell: &mut Spell, parameters: &[u8]) {
-
-}
+fn use_energy(spell: &mut Spell, component: u8) {}
