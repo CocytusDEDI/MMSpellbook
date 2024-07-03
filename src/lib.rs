@@ -6,7 +6,9 @@ use godot::classes::SphereShape3D;
 use godot::classes::CsgSphere3D;
 use godot::classes::Shape3D;
 use lazy_static::lazy_static;
+use serde_json::Value;
 use std::collections::HashMap;
+use serde_json;
 
 struct MyExtension;
 
@@ -22,7 +24,8 @@ struct Spell {
     base: Base<Area3D>,
     energy: f64,
     ready_instructions: Vec<Vec<u8>>,
-    process_instructions: Vec<Vec<u8>>
+    process_instructions: Vec<Vec<u8>>,
+    component_efficiencies: Option<HashMap<u8, f64>>
 }
 
 
@@ -32,8 +35,9 @@ impl IArea3D for Spell {
         Self {
             base,
             energy: 0.0,
-            ready_instructions: vec![vec![]],
-            process_instructions: vec![vec![]]
+            ready_instructions: vec![],
+            process_instructions: vec![],
+            component_efficiencies: None
         }
     }
 
@@ -48,20 +52,20 @@ impl IArea3D for Spell {
     }
 
     fn physics_process(&mut self, delta: f64) {
-        self.spell_virtual_machine(1)
+        self.spell_virtual_machine(1);
     }
 }
 
 lazy_static! {
-    static ref COMPONENT_MAP: HashMap<u8, fn(&mut Spell, &[u8])> = {
+    static ref COMPONENT_MAP: HashMap<u8, fn(&mut Spell, &[u8], bool) -> f64> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, component_functions::example_function as fn(&mut Spell, &[u8]));
+        component_map.insert(0, component_functions::example_function as fn(&mut Spell, &[u8], bool) -> f64);
         return component_map
     };
 }
 
 impl Spell {
-    fn spell_virtual_machine(&mut self, called_from: u8) {
+    fn spell_virtual_machine(&mut self, called_from: u8) -> Result<(), u32> {
         for instruction in match called_from {
             // Cloning here is exponsive and could be changed
             0 => self.ready_instructions.clone(),
@@ -69,16 +73,45 @@ impl Spell {
             // ToDo: Make up mind about to panic! or not to panic!
             _ => panic!("Not valid instruction call")
         } {
-            if let Some((&component, parameters)) = instruction.split_first() {
-                if let Some(&function) = COMPONENT_MAP.get(&component) {
-                    function(self, parameters);
+            if let Some((component, parameters)) = instruction.split_first() {
+                if let Some(function) = COMPONENT_MAP.get(component) {
+                    // Cloning here is expensive
+                    if let Some(component_efficiencies) = self.component_efficiencies.clone() {
+                        if let Some(efficiency) = component_efficiencies.get(component) {
+                            if self.energy >= function(self, parameters, false) / efficiency {
+                                self.energy -= function(self, parameters, true) / efficiency;
+                            } else {
+                                return Err(1)
+                            }
+                        } else {
+                            return Err(0) // Placeholder for error code currently
+                        }
+                    } else {
+                        panic!("No component efficiencies")
+                    }
                 } else {
-                    panic!("Unknown component");
+                    panic!("Unknown component")
                 }
             }
         }
+        return Ok(())
+    }
+
+    fn give_efficiencies(&mut self, efficiencies_json: GString) {
+        let json_string = efficiencies_json.to_string();
+
+        match serde_json::from_str(&json_string) {
+            Ok(Value::Object(efficiencies_object)) => {
+                let mut temp_hashmap: HashMap<u8, f64> = HashMap::new();
+                for (key, value) in efficiencies_object {
+                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u8>(), value.as_f64()) {
+                        temp_hashmap.insert(parsed_key, parsed_value);
+                    }
+                }
+                self.component_efficiencies = Some(temp_hashmap);
+            },
+            Ok(_) => panic!("Invalid Json: Must be object"),
+            Err(_) => panic!("Invalid Json: Incorrect format")
+        }
     }
 }
-
-// ToDo: Add in energy useage for each component called and use the efficiency of each component
-fn use_energy(spell: &mut Spell, component: u8) {}
