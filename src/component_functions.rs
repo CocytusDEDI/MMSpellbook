@@ -1,6 +1,6 @@
 use crate::Spell;
 
-pub fn example_function(spell: &mut Spell, parameters: &[u8], should_execute: bool) -> f64{
+pub fn give_velocity(spell: &mut Spell, parameters: &[u8], should_execute: bool) -> f64{
     return 0.0
 }
 

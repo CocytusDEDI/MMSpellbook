@@ -1,3 +1,66 @@
+use lazy_static::lazy_static;
+use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
+
+const FUNCTION_NAME_SIZE: usize = 20;
+
+#[derive(Deserialize)]
+struct string_component {
+    component_name: String,
+    parameters: Vec<serde_json::Value>
+}
+
+#[derive(Deserialize)]
+struct string_spell {
+    action: String,
+    components: Vec<string_component>
+}
+
+#[derive(Deserialize, Serialize)]
+struct parsed_spell {
+    action: u8,
+    components: Vec<parsed_component>
+}
+
+#[derive(Deserialize, Serialize)]
+struct parsed_component {
+    component: u8,
+    parameters: Vec<serde_json::Value>
+}
+
+fn parse_spell(spell_json: &str) -> Result<String, serde_json::Error> {
+    let unparsed_spell: Vec<string_spell> = serde_json::from_str(spell_json)?;
+    // parse spell into numerical json
+    return Ok(String::new())
+}
+
+fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
+    let mut padded_name = [None; FUNCTION_NAME_SIZE];
+    for (index, character) in component_name.chars().take(FUNCTION_NAME_SIZE).enumerate() {
+        padded_name[index] = Some(character);
+    }
+    padded_name
+}
+
+fn decode_component_name(padded_name: &[Option<char>; FUNCTION_NAME_SIZE]) -> String {
+    padded_name.iter()
+    .filter_map(|&character| character)
+    .collect()
+}
+
+lazy_static! {
+    static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u8> = {
+        let mut component_map = HashMap::new();
+        component_map.insert(pad_component_name("give_velocity"), 0);
+        component_map
+    };
+}
+
+
+fn get_component_id(component_name: &str) -> Option<&u8> {
+    COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name))
+}
+
 fn get_component(component_call: &str) -> Result<(String, Vec<Parameter>), &'static str> {
     if component_call.chars().last() != Some(')') {
         return Err("Invalid component: Must end with close bracket");

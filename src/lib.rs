@@ -8,7 +8,6 @@ use godot::classes::Shape3D;
 use lazy_static::lazy_static;
 use serde_json::Value;
 use std::collections::HashMap;
-use serde_json;
 
 struct MyExtension;
 
@@ -57,9 +56,9 @@ impl IArea3D for Spell {
 }
 
 lazy_static! {
-    static ref COMPONENT_MAP: HashMap<u8, fn(&mut Spell, &[u8], bool) -> f64> = {
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u8, fn(&mut Spell, &[u8], bool) -> f64> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, component_functions::example_function as fn(&mut Spell, &[u8], bool) -> f64);
+        component_map.insert(0, component_functions::give_velocity as fn(&mut Spell, &[u8], bool) -> f64);
         return component_map
     };
 }
@@ -74,7 +73,7 @@ impl Spell {
             _ => panic!("Not valid instruction call")
         } {
             if let Some((component, parameters)) = instruction.split_first() {
-                if let Some(function) = COMPONENT_MAP.get(component) {
+                if let Some(function) = COMPONENT_TO_FUNCTION_MAP.get(component) {
                     // Cloning here is expensive
                     if let Some(component_efficiencies) = self.component_efficiencies.clone() {
                         if let Some(efficiency) = component_efficiencies.get(component) {

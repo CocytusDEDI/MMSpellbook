@@ -6,7 +6,7 @@ description = "MMSpellbook (Magic Modelling Spellbook) is a magic system for God
 
 [dependencies]
 serde_json = "1.0"
-serde = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
 lazy_static = "1.5"
 
