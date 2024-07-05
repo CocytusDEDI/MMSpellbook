@@ -65,7 +65,7 @@ lazy_static! {
 
 impl Spell {
     fn spell_virtual_machine(&mut self, instructions: Vec<Vec<u8>>) -> Result<(), u32> {
-        for instruction in instructions.clone() {
+        for instruction in instructions {
             if let Some((component, parameters)) = instruction.split_first() {
                 if let Some(function) = COMPONENT_TO_FUNCTION_MAP.get(component) {
                     // Cloning here is expensive
