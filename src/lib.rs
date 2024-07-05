@@ -47,11 +47,11 @@ impl IArea3D for Spell {
         self.base_mut().add_child(collision_shape.upcast());
         self.base_mut().add_child(CsgSphere3D::new_alloc().upcast());
 
-        self.spell_virtual_machine(0);
+        self.spell_virtual_machine(self.ready_instructions.clone());
     }
 
     fn physics_process(&mut self, delta: f64) {
-        self.spell_virtual_machine(1);
+        self.spell_virtual_machine(self.process_instructions.clone());
     }
 }
 
@@ -64,14 +64,8 @@ lazy_static! {
 }
 
 impl Spell {
-    fn spell_virtual_machine(&mut self, called_from: u8) -> Result<(), u32> {
-        for instruction in match called_from {
-            // Cloning here is exponsive and could be changed
-            0 => self.ready_instructions.clone(),
-            1 => self.process_instructions.clone(),
-            // ToDo: Make up mind about to panic! or not to panic!
-            _ => panic!("Not valid instruction call")
-        } {
+    fn spell_virtual_machine(&mut self, instructions: Vec<Vec<u8>>) -> Result<(), u32> {
+        for instruction in instructions.clone() {
             if let Some((component, parameters)) = instruction.split_first() {
                 if let Some(function) = COMPONENT_TO_FUNCTION_MAP.get(component) {
                     // Cloning here is expensive
