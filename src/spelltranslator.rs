@@ -1,38 +1,10 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 const FUNCTION_NAME_SIZE: usize = 20;
 
-#[derive(Deserialize)]
-struct string_component {
-    component_name: String,
-    parameters: Vec<serde_json::Value>
-}
-
-#[derive(Deserialize)]
-struct string_spell {
-    action: String,
-    components: Vec<string_component>
-}
-
-#[derive(Deserialize, Serialize)]
-struct parsed_spell {
-    action: u8,
-    components: Vec<parsed_component>
-}
-
-#[derive(Deserialize, Serialize)]
-struct parsed_component {
-    component: u8,
-    parameters: Vec<serde_json::Value>
-}
-
-fn parse_spell(spell_json: &str) -> Result<String, serde_json::Error> {
-    let unparsed_spell: Vec<string_spell> = serde_json::from_str(spell_json)?;
-    // parse spell into numerical json
-    return Ok(String::new())
-}
+// ToDo: for Andy.
+fn parse_spell() {}
 
 fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
     let mut padded_name = [None; FUNCTION_NAME_SIZE];
