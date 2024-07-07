@@ -21,7 +21,7 @@ fn decode_component_name(padded_name: &[Option<char>; FUNCTION_NAME_SIZE]) -> St
 }
 
 lazy_static! {
-    static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u8> = {
+    static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u32> = {
         let mut component_map = HashMap::new();
         component_map.insert(pad_component_name("give_velocity"), 0);
         component_map
@@ -29,7 +29,7 @@ lazy_static! {
 }
 
 
-fn get_component_id(component_name: &str) -> Option<&u8> {
+fn get_component_id(component_name: &str) -> Option<&u32> {
     COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name))
 }
 

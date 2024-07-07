@@ -22,9 +22,9 @@ mod component_functions;
 struct Spell {
     base: Base<Area3D>,
     energy: f64,
-    ready_instructions: Vec<Vec<u8>>,
-    process_instructions: Vec<Vec<u8>>,
-    component_efficiencies: Option<HashMap<u8, f64>>
+    ready_instructions: Vec<u32>,
+    process_instructions: Vec<u32>,
+    component_efficiencies: Option<HashMap<u32, f64>>
 }
 
 
@@ -47,11 +47,11 @@ impl IArea3D for Spell {
         self.base_mut().add_child(collision_shape.upcast());
         self.base_mut().add_child(CsgSphere3D::new_alloc().upcast());
 
-        self.spell_virtual_machine(self.ready_instructions.clone());
+        self.spell_virtual_machine(&self.ready_instructions.clone());
     }
 
     fn physics_process(&mut self, delta: f64) {
-        self.spell_virtual_machine(self.process_instructions.clone());
+        self.spell_virtual_machine(&self.process_instructions.clone());
     }
 }
 
@@ -64,7 +64,11 @@ lazy_static! {
 }
 
 impl Spell {
-    fn spell_virtual_machine(&mut self, instructions: Vec<Vec<u8>>) -> Result<(), u32> {
+    fn spell_virtual_machine(&mut self, instructions: &[u32]) -> Result<(), u32> {
+        for bits in instructions {}
+
+        // Old code, some still needed for later:
+        /*
         for instruction in instructions {
             if let Some((component, parameters)) = instruction.split_first() {
                 if let Some(function) = COMPONENT_TO_FUNCTION_MAP.get(component) {
@@ -87,6 +91,8 @@ impl Spell {
                 }
             }
         }
+        */
+
         return Ok(())
     }
 
@@ -95,9 +101,9 @@ impl Spell {
 
         match serde_json::from_str(&json_string) {
             Ok(Value::Object(efficiencies_object)) => {
-                let mut temp_hashmap: HashMap<u8, f64> = HashMap::new();
+                let mut temp_hashmap: HashMap<u32, f64> = HashMap::new();
                 for (key, value) in efficiencies_object {
-                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u8>(), value.as_f64()) {
+                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u32>(), value.as_f64()) {
                         temp_hashmap.insert(parsed_key, parsed_value);
                     }
                 }
