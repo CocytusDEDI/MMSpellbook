@@ -76,7 +76,7 @@ fn get_component(component_call: &str) -> Result<(String, Vec<Parameter>), &'sta
 
 pub enum Parameter {
     Integer(i32),
-    Float(f64),
+    Float(f32),
     String(String),
     Boolean(bool),
 }
@@ -114,7 +114,7 @@ fn parse_parameter(parameter: &str) -> Result<Parameter, &'static str> {
         return Ok(Parameter::Integer(value))
     }
 
-    if let Ok(value) = parameter.parse::<f64>() {
+    if let Ok(value) = parameter.parse::<f32>() {
         return Ok(Parameter::Float(value))
     }
 

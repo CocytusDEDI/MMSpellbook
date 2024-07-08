@@ -8,6 +8,7 @@ use godot::classes::Shape3D;
 use lazy_static::lazy_static;
 use serde_json::Value;
 use std::collections::HashMap;
+use spelltranslator::Parameter;
 
 struct MyExtension;
 
@@ -65,7 +66,52 @@ lazy_static! {
 
 impl Spell {
     fn spell_virtual_machine(&mut self, instructions: &[u32]) -> Result<(), u32> {
-        for bits in instructions {}
+        // ToDo: Code such as rpn evaluation should be in it's own subroutine to be available to call for other logic statements.
+        // ToDo: Decide to remove or not remove strings from Parameter
+
+        let in_component = false;
+        let mut instructions_iter = instructions.iter();
+        let mut skip_block = false;
+        while let Some(bits) = instructions_iter.next() {
+            if !in_component {
+                let opcode: u32 = bits & 0x80000000;
+                let value: u32 = bits & !0x80000000;
+
+                // Checking if first most significant bit is 1, if so, it is a component
+                if opcode == 0x80000000 {
+
+                } else {
+                    // bits represent logic statement
+                    match bits {
+                        0x00000000 => skip_block = false, // End current scope
+                        0x00000001 => { // If statement
+                            let mut rpn_stack: Vec<Parameter> = vec![];
+                            while let Some(bits) = instructions_iter.next() {
+                                let opcode: u32 = bits & 0x80000000;
+                                let value: u32 = bits & !0x80000000;
+
+                                if opcode == 0x80000000 {
+                                    rpn_stack.push(Parameter::Integer(*bits as i32));
+                                } else {
+                                    match bits {
+                                        // Deal with logic units:
+                                        // 0x00000002 => rpn_stack.push(Parameter::Boolean(rpn_stack.pop() && rnp_stack.pop())),
+                                        _ => panic!("Not valid if statement logic")
+                                    }
+                                }
+                            }
+                            // Use RPN to evaluate expression to bool
+
+
+                        },
+                        _ => panic!("Logic statement does not exist")
+                    }
+                }
+
+            } else {
+
+            }
+        }
 
         // Old code, some still needed for later:
         /*
@@ -94,6 +140,10 @@ impl Spell {
         */
 
         return Ok(())
+    }
+
+    fn call_component(&mut self, component_code: u32) -> Result<Option<Parameter>, ()> {
+        return Ok(Some(Parameter::Boolean(true)))
     }
 
     fn give_efficiencies(&mut self, efficiencies_json: GString) {
