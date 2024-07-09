@@ -75,9 +75,7 @@ fn get_component(component_call: &str) -> Result<(String, Vec<Parameter>), &'sta
 }
 
 pub enum Parameter {
-    Integer(i32),
     Float(f32),
-    String(String),
     Boolean(bool),
 }
 
@@ -110,23 +108,12 @@ fn collect_parameters(parameters_string: &str) -> Result<Vec<Parameter>, &'stati
 }
 
 fn parse_parameter(parameter: &str) -> Result<Parameter, &'static str> {
-    if let Ok(value) = parameter.parse::<i32>() {
-        return Ok(Parameter::Integer(value))
-    }
-
     if let Ok(value) = parameter.parse::<f32>() {
         return Ok(Parameter::Float(value))
     }
 
     if let Ok(value) = parameter.parse::<bool>() {
         return Ok(Parameter::Boolean(value))
-    }
-
-    if let Ok(value) = parameter.parse::<String>() {
-        if !value.chars().all(char::is_alphabetic) {
-            return Err("Invalid parameter: Strings must only contain letters")
-        }
-        return Ok(Parameter::String(value))
     }
 
     return Err("Invalid parameter")

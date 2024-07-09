@@ -57,93 +57,78 @@ impl IArea3D for Spell {
 }
 
 lazy_static! {
-    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u8, fn(&mut Spell, &[u8], bool) -> f64> = {
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u32, (fn(&mut Spell, &[u32], bool) -> Option<u32>, u32)> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, component_functions::give_velocity as fn(&mut Spell, &[u8], bool) -> f64);
+        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u32], bool) -> Option<u32>, 3));
         return component_map
     };
 }
 
+
+
+
 impl Spell {
-    fn spell_virtual_machine(&mut self, instructions: &[u32]) -> Result<(), u32> {
+    fn spell_virtual_machine(&mut self, instructions: &[u32]) -> Result<(), ()> {
         // ToDo: Code such as rpn evaluation should be in it's own subroutine to be available to call for other logic statements.
         // ToDo: Decide to remove or not remove strings from Parameter
 
-        let in_component = false;
         let mut instructions_iter = instructions.iter();
-        let mut skip_block = false;
         while let Some(bits) = instructions_iter.next() {
-            if !in_component {
-                let opcode: u32 = bits & 0x80000000;
-                let value: u32 = bits & !0x80000000;
-
-                // Checking if first most significant bit is 1, if so, it is a component
-                if opcode == 0x80000000 {
-
-                } else {
-                    // bits represent logic statement
-                    match bits {
-                        0x00000000 => skip_block = false, // End current scope
-                        0x00000001 => { // If statement
-                            let mut rpn_stack: Vec<Parameter> = vec![];
-                            while let Some(bits) = instructions_iter.next() {
-                                let opcode: u32 = bits & 0x80000000;
-                                let value: u32 = bits & !0x80000000;
-
-                                if opcode == 0x80000000 {
-                                    rpn_stack.push(Parameter::Integer(*bits as i32));
-                                } else {
-                                    match bits {
-                                        // Deal with logic units:
-                                        // 0x00000002 => rpn_stack.push(Parameter::Boolean(rpn_stack.pop() && rnp_stack.pop())),
-                                        _ => panic!("Not valid if statement logic")
-                                    }
-                                }
-                            }
-                            // Use RPN to evaluate expression to bool
-
-
-                        },
-                        _ => panic!("Logic statement does not exist")
+            match bits {
+                103 => { // 103 = component
+                    let component_code = *instructions_iter.next().expect("Expected component");
+                    let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
+                    let mut parameters: Vec<u32> = vec![];
+                    for _ in 0..number_of_component_parameters {
+                        parameters.push(*instructions_iter.next().expect("Expected parameter"));
                     }
-                }
+                    self.call_component(component_code, parameters)?;
+                },
+                400 => {
 
-            } else {
-
+                },
+                _ => panic!("Not valid opcode")
             }
         }
-
-        // Old code, some still needed for later:
-        /*
-        for instruction in instructions {
-            if let Some((component, parameters)) = instruction.split_first() {
-                if let Some(function) = COMPONENT_TO_FUNCTION_MAP.get(component) {
-                    // Cloning here is expensive
-                    if let Some(component_efficiencies) = self.component_efficiencies.clone() {
-                        if let Some(efficiency) = component_efficiencies.get(component) {
-                            if self.energy >= function(self, parameters, false) / efficiency {
-                                self.energy -= function(self, parameters, true) / efficiency;
-                            } else {
-                                return Err(1)
-                            }
-                        } else {
-                            return Err(0) // Placeholder for error code currently
-                        }
-                    } else {
-                        panic!("No component efficiencies")
-                    }
-                } else {
-                    panic!("Unknown component")
-                }
-            }
-        }
-        */
-
         return Ok(())
     }
 
-    fn call_component(&mut self, component_code: u32) -> Result<Option<Parameter>, ()> {
-        return Ok(Some(Parameter::Boolean(true)))
+
+    fn call_component(&mut self, component_code: u32, parameters: Vec<u32>) -> Result<Option<u32>, ()> {
+        if let Some((function, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
+            if let Some(component_efficiencies) = self.component_efficiencies.clone() {
+                if let Some(efficiency) = component_efficiencies.get(&component_code) {
+                    if let Some(base_energy) = function(self, &parameters, false) {
+                        if self.energy >= base_energy as f64 / efficiency {
+                            self.energy -= base_energy as f64 / efficiency;
+                            if let Some(value) = function(self, &parameters, true) {
+                                return Ok(Some(value))
+                            } else {
+                                return Ok(None)
+                            }
+                        } else {
+                            return Err(())
+                        }
+                    } else {
+                        panic!("Function should return base_energy when should_execute is false")
+                    }
+                } else {
+                    panic!("Function does not have an efficiency")
+                }
+            } else {
+                panic!("Component efficiencies not given")
+            }
+        } else {
+            panic!("Component does not exist")
+        }
+    }
+
+    fn get_number_of_component_parameters(&self, component_code: u32) -> u32 {
+        if let Some((_, number_of_parameters)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
+            return *number_of_parameters
+        } else {
+            panic!("Component doesn't exist")
+        }
     }
 
     fn give_efficiencies(&mut self, efficiencies_json: GString) {
@@ -164,3 +149,46 @@ impl Spell {
         }
     }
 }
+
+fn custom_bool_and(first: u32, second: u32) -> u32 {
+    // 100 = true, 101 = false
+    match (first, second) {
+        (100, 100) => 100,
+        (100, 101) => 101,
+        (101, 100) => 101,
+        (101, 101) => 101,
+        _ => panic!("Parameters must be 100 or 101")
+    }
+}
+
+fn custom_bool_or(first: u32, second: u32) -> u32 {
+    // 100 = true, 101 = false
+    match (first, second) {
+        (100, 100) => 100,
+        (100, 101) => 100,
+        (101, 100) => 100,
+        (101, 101) => 101,
+        _ => panic!("Parameters must be 100 or 101")
+    }
+}
+
+fn custom_bool_xor(first: u32, second: u32) -> u32 {
+    // 100 = true, 101 = false
+    match (first, second) {
+        (100, 100) => 101,
+        (100, 101) => 100,
+        (101, 100) => 100,
+        (101, 101) => 101,
+        _ => panic!("Parameters must be 100 or 101")
+    }
+}
+
+fn custom_bool_not(first: u32) -> u32 {
+    // 100 = true, 101 = false
+    match first {
+        100 => 101,
+        101 => 100,
+        _ => panic!("Parameters must be 100 or 101")
+    }
+}
+
