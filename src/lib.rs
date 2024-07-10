@@ -8,7 +8,6 @@ use godot::classes::Shape3D;
 use lazy_static::lazy_static;
 use serde_json::Value;
 use std::collections::HashMap;
-use spelltranslator::Parameter;
 
 struct MyExtension;
 
@@ -65,8 +64,6 @@ lazy_static! {
 }
 
 
-
-
 impl Spell {
     fn spell_virtual_machine(&mut self, instructions: &[u32]) -> Result<(), ()> {
         // ToDo: Code such as rpn evaluation should be in it's own subroutine to be available to call for other logic statements.
@@ -99,8 +96,9 @@ impl Spell {
             if let Some(component_efficiencies) = self.component_efficiencies.clone() {
                 if let Some(efficiency) = component_efficiencies.get(&component_code) {
                     if let Some(base_energy) = function(self, &parameters, false) {
-                        if self.energy >= base_energy as f64 / efficiency {
-                            self.energy -= base_energy as f64 / efficiency;
+                        let base_energy = f32::from_bits(base_energy) as f64;
+                        if self.energy >= base_energy / efficiency {
+                            self.energy -= base_energy / efficiency;
                             if let Some(value) = function(self, &parameters, true) {
                                 return Ok(Some(value))
                             } else {
