@@ -97,8 +97,9 @@ impl Spell {
                 if let Some(efficiency) = component_efficiencies.get(&component_code) {
                     if let Some(base_energy) = function(self, &parameters, false) {
                         let base_energy = f32::from_bits(base_energy) as f64;
-                        if self.energy >= base_energy / efficiency {
-                            self.energy -= base_energy / efficiency;
+                        let energy_needed = base_energy / efficiency;
+                        if self.energy >= energy_needed {
+                            self.energy -= energy_needed;
                             if let Some(value) = function(self, &parameters, true) {
                                 return Ok(Some(value))
                             } else {
