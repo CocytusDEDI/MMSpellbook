@@ -1,0 +1,14 @@
+# Implemented:
+movement:
+0 = give_velocity(x: f32, y: f32, z: f32)
+
+# Planned (could change):
+creation:
+100 = create_element(energy: f32, type: u32) parameter_explanation {type: 0 = fire, 1 = water, 2 = air, 3 = rock}
+
+power:
+200 = explode(energy: f32, type: u32) requires {create_element} parameter_explanation {type: 0 = fire, 1 = water, 2 = air, 3 = rock}
+
+utility:
+300 = wait(seconds: f32)
+301 = anchor() requires {give_velocity}
