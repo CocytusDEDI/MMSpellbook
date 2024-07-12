@@ -15,3 +15,4 @@ MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows 
 - ability to provide spells with instructions
 - updating efficencies after casting
 - spell translation into bytecode
+- use of numbers in if statements (currently just bools)
