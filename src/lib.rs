@@ -72,9 +72,9 @@ impl IArea3D for Spell {
 }
 
 lazy_static! {
-    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<u64>, u64)> = {
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, u64)> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<u64>, 3));
+        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, 3));
         return component_map
     };
 }
@@ -84,24 +84,75 @@ impl Spell {
     fn spell_virtual_machine(&mut self, instructions: &[u64], option_delta: Option<f64>) -> Result<(), ()> {
         // ToDo: Code such as rpn evaluation should be in it's own subroutine to be available to call for other logic statements.
         // ToDo: Decide to remove or not remove strings from Parameter
-        let delta: u64 = match option_delta {
-            Some(time) => f64::to_bits(time),
-            None => f64::to_bits(0.0)
-        };
         let mut instructions_iter = instructions.iter();
-        while let Some(bits) = instructions_iter.next() {
+        while let Some(&bits) = instructions_iter.next() {
             match bits {
+                0 => {}, // 0 = end of scope, if reached naturely, move on
                 103 => { // 103 = component
                     let component_code = *instructions_iter.next().expect("Expected component");
                     let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
-                    let mut parameters: Vec<u64> = vec![delta];
+                    let mut parameters: Vec<u64> = vec![];
                     for _ in 0..number_of_component_parameters {
                         parameters.push(*instructions_iter.next().expect("Expected parameter"));
                     }
-                    self.call_component(component_code, parameters)?;
+                    self.call_component(component_code, parameters, option_delta)?;
                 },
                 400 => { // 400 = if statement
-
+                    let mut rpn_stack: Vec<u64> = vec![];
+                    while let Some(&if_bits) = instructions_iter.next() {
+                        match if_bits {
+                            0 => break,
+                            100..=101 => rpn_stack.push(if_bits), // true and false
+                            102 => rpn_stack.push(*instructions_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
+                            103 => { // Component
+                                let component_code = *instructions_iter.next().expect("Expected component");
+                                let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
+                                let mut parameters: Vec<u64> = vec![];
+                                for _ in 0..number_of_component_parameters {
+                                    parameters.push(*instructions_iter.next().expect("Expected parameter"));
+                                }
+                                rpn_stack.push(self.call_component(component_code, parameters, option_delta)?.expect("Expected return from function"));
+                            }
+                            200 => { // And statement
+                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_two = rpn_stack.pop().expect("Expected value to compair");
+                                rpn_stack.push(custom_bool_and(bool_one, bool_two));
+                            },
+                            201 => { // Or statement
+                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_two = rpn_stack.pop().expect("Expected value to compair");
+                                rpn_stack.push(custom_bool_or(bool_one, bool_two));
+                            },
+                            202 => { // Not statement
+                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                rpn_stack.push(custom_bool_not(bool_one));
+                            },
+                            203 => { // Xor statement
+                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_two = rpn_stack.pop().expect("Expected value to compair");
+                                rpn_stack.push(custom_bool_xor(bool_one, bool_two));
+                            },
+                            _ => panic!("Opcode doesn't exist")
+                        }
+                    match rpn_stack.pop().expect("Expected final bool") {
+                        100 => {}, // if true, execute by going back into normal loop
+                        101 => { // if false, skip to the end of scope
+                            let mut skip_amount: u32 = 1;
+                            while let Some(&skipping_bits) = instructions_iter.next() {
+                                match skipping_bits {
+                                    0 => skip_amount -= 1, // If end of scope
+                                    102 => _ = instructions_iter.next(), // Ignores number literals
+                                    400 => skip_amount += 2, // Ignore next two end of scopes because if statements have two end of scopes
+                                    _ => {}
+                                }
+                                if skip_amount == 0 {
+                                    break;
+                                }
+                            }
+                        }
+                        _ => panic!("Expected bool")
+                    };
+                    }
                 },
                 _ => panic!("Not valid opcode")
             }
@@ -110,16 +161,20 @@ impl Spell {
     }
 
 
-    fn call_component(&mut self, component_code: u64, parameters: Vec<u64>) -> Result<Option<u64>, ()> {
+    fn call_component(&mut self, component_code: u64, parameters: Vec<u64>, option_delta: Option<f64>) -> Result<Option<u64>, ()> {
+        let delta = match option_delta {
+            Some(num) => num,
+            None => 1.0
+        };
         if let Some((function, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
             if let Some(component_efficiencies) = self.component_efficiencies.clone() {
                 if let Some(efficiency) = component_efficiencies.get(&component_code) {
-                    if let Some(base_energy) = function(self, &parameters, false) {
+                    if let Some(base_energy) = function(self, &parameters, delta, false) {
                         let base_energy = f64::from_bits(base_energy);
                         let energy_needed = base_energy / efficiency;
                         if self.energy >= energy_needed {
                             self.energy -= energy_needed;
-                            if let Some(value) = function(self, &parameters, true) {
+                            if let Some(value) = function(self, &parameters, delta, true) {
                                 return Ok(Some(value))
                             } else {
                                 return Ok(None)
