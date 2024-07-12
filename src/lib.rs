@@ -37,6 +37,7 @@ impl IArea3D for Spell {
         Self {
             base,
             energy: 10.0,
+            // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: vec![],
             process_instructions: vec![],
             component_efficiencies: None // Replace None with the following commented out code to run manually without providing efficiencies through json:
