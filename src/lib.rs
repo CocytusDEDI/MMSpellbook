@@ -71,10 +71,14 @@ impl IArea3D for Spell {
     }
 }
 
+static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
+
 lazy_static! {
-    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, u64)> = {
+    // Component_bytecode -> (function, parameter types represented by u64)
+    // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, &'static[u64])> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, 3));
+        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, COMPONENT_0_ARGS));
         return component_map
     };
 }
@@ -198,7 +202,7 @@ impl Spell {
 
     fn get_number_of_component_parameters(&self, component_code: u64) -> u64 {
         if let Some((_, number_of_parameters)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-            return *number_of_parameters
+            return number_of_parameters.len() as u64
         } else {
             panic!("Component doesn't exist")
         }
