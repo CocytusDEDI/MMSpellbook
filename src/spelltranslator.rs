@@ -6,8 +6,18 @@ const FUNCTION_NAME_SIZE: usize = 30;
 
 fn parse_spell() {}
 
-fn parse_component() {
-
+fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
+    let mut component_vec: Vec<u64> = vec![103];
+    let (component_name, parameters) = parse_component_string(component_call)?;
+    let component_num = match get_component_num(&component_name) {
+        Some(num) => num,
+        None => return Err("Invalid component: mapping doesn't exist")
+    };
+    component_vec.push(component_num);
+    for parameter in parameters {
+        component_vec.push(parameter.to_bits())
+    }
+    return Ok(component_vec)
 }
 
 fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
@@ -33,8 +43,8 @@ lazy_static! {
 }
 
 
-fn get_component_num(component_name: &str) -> Option<&u64> {
-    COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name))
+fn get_component_num(component_name: &str) -> Option<u64> {
+    COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name)).cloned()
 }
 
 fn parse_component_string(component_call: &str) -> Result<(String, Vec<Parameter>), &'static str> {
@@ -85,6 +95,18 @@ enum Parameter {
     Boolean(bool)
 }
 
+impl Parameter {
+    fn to_bits(&self) -> u64 {
+        match *self {
+            Parameter::Integer(int) => int,
+            Parameter::Float(float) => float.to_bits(),
+            Parameter::Boolean(boolean) => match boolean {
+                true => 100,
+                false => 101
+            }
+        }
+    }
+}
 
 fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<Vec<Parameter>, &'static str> {
     let mut parameter = String::new();
@@ -92,42 +114,51 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
 
     // ToDo: Use COMPONENT_TO_FUNCTION_MAP to find expected parameter type and attempt to convert it
 
-    /*
-    if let Some((_, encoded_types)) = COMPONENT_TO_FUNCTION_MAP.get(COMPONENT_TO_NUM_MAP.get(get_component_num(component_name).expect("Expected component"))) {
-        let encoded_types: &[u64] = encoded_types;
-        for &parameter_type in encoded_types {
+    let mut index = 0;
 
+    if let Some((_, encoded_types)) = COMPONENT_TO_FUNCTION_MAP.get(&get_component_num(component_name).expect("Expected component")) {
+        let encoded_types: &[u64] = encoded_types;
+        for character in parameters_string.chars() {
+            if character == ',' {
+                if parameter.is_empty() {
+                    return Err("Invalid parameters: Must have value before bracket")
+                }
+
+                if index >= encoded_types.len() {
+                    return Err("Invalid parameters: More parameters than expected types");
+                }
+
+                // Adding parameter to parameters vector
+                parameters.push(parse_parameter(&parameter, encoded_types[index])?);
+                index += 1;
+
+                // Clear parameter string so next one can be recorded
+                parameter.clear()
+
+            } else {
+                parameter.push(character)
+            }
+        }
+
+        // Adding last parameter
+        if !parameter.is_empty() {
+            if index >= encoded_types.len() {
+                return Err("Invalid parameters: More parameters than expected types");
+            }
+            parameters.push(parse_parameter(&parameter, encoded_types[index])?);
         }
     } else {
         panic!("Expected component mapping")
-    }
-    */
-    for character in parameters_string.chars() {
-        if character == ',' {
-            if parameter.is_empty() {
-                return Err("Invalid component: Must have value before bracket")
-            }
-            // Adding parameter to parameters vector
-            parameters.push(parse_parameter(&parameter, component_name));
-
-            // Clear parameter string so next one can be recorded
-            parameter.clear()
-
-        } else {
-            parameter.push(character)
-        }
-    }
-
-    // Adding last parameter
-    if !parameter.is_empty() {
-        parameters.push(parse_parameter(&parameter, component_name));
     }
 
     return Ok(parameters)
 }
 
-fn parse_parameter(parameters_string: &str, component_name: &str) -> Parameter {
-
-    return Parameter::Integer(0)
-
+fn parse_parameter(parameters_string: &str, parameter_type: u64) -> Result<Parameter, &'static str> {
+    match parameter_type {
+        0 => Ok(Parameter::Integer(parameters_string.parse::<u64>().expect("Couldn't parse parameter: should be integer"))),
+        1 => Ok(Parameter::Float(parameters_string.parse::<f64>().expect("Couldn't parse parameter: should be float"))),
+        2 => Ok(Parameter::Boolean(parameters_string.parse::<bool>().expect("Couldn't parse parameter: should be boolean"))),
+        _ => Err("Invalid parameters: parameter doesn't match expected type")
+    }
 }
