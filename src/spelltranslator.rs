@@ -4,7 +4,23 @@ use crate::COMPONENT_TO_FUNCTION_MAP;
 
 const FUNCTION_NAME_SIZE: usize = 30;
 
-fn parse_spell() {}
+pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
+    let mut instructions: Vec<u64> = vec![];
+    let mut character_accumulator = String::new();
+    for line in spell_code.lines() {
+        for character in line.chars() {
+            if character == '(' {
+                let trimmed_line = line.trim();
+                instructions.extend(parse_component(trimmed_line)?);
+                break;
+            }
+
+            character_accumulator.push(character);
+        }
+        character_accumulator.clear();
+    }
+    return Ok(instructions)
+}
 
 fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
     let mut component_vec: Vec<u64> = vec![103];
@@ -67,7 +83,7 @@ fn parse_component_string(component_call: &str) -> Result<(String, Vec<Parameter
             found_opening_bracket = true;
             break;
             // Checking if character is alphabetic if not an open bracket.
-        } else if !character.is_alphabetic() {
+        } else if !character.is_alphabetic() && character != '_' {
             return Err("Invalid component: Name must be made up of letters")
         }
 
@@ -154,11 +170,12 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
     return Ok(parameters)
 }
 
-fn parse_parameter(parameters_string: &str, parameter_type: u64) -> Result<Parameter, &'static str> {
+fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parameter, &'static str> {
+    let trimmed_parameter_string = parameter_string.trim();
     match parameter_type {
-        0 => Ok(Parameter::Integer(parameters_string.parse::<u64>().expect("Couldn't parse parameter: should be integer"))),
-        1 => Ok(Parameter::Float(parameters_string.parse::<f64>().expect("Couldn't parse parameter: should be float"))),
-        2 => Ok(Parameter::Boolean(parameters_string.parse::<bool>().expect("Couldn't parse parameter: should be boolean"))),
+        0 => Ok(Parameter::Integer(trimmed_parameter_string.parse::<u64>().expect("Couldn't parse parameter: should be integer"))),
+        1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().expect("Couldn't parse parameter: should be float"))),
+        2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().expect("Couldn't parse parameter: should be boolean"))),
         _ => Err("Invalid parameters: parameter doesn't match expected type")
     }
 }

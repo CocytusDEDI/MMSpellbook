@@ -1,4 +1,4 @@
-use godot::{builtin::Vector3, log::godot_print, obj::WithBaseField};
+use godot::prelude::*;
 
 use crate::Spell;
 
@@ -6,10 +6,9 @@ const APPLY_TO_SPELL_COEFFICIENT: f64 = 100.0;
 
 pub fn give_velocity(spell: &mut Spell, parameters: &[u64], delta: f64, should_execute: bool) -> Option<u64> {
     let f32_delta: f32 = delta as f32;
-    godot_print!("{:?}", spell.energy);
-    let parameter_one: f32 = f64::from_bits(parameters[1]) as f32;
-    let parameter_two: f32 = f64::from_bits(parameters[2]) as f32;
-    let parameter_three: f32 = f64::from_bits(parameters[3]) as f32;
+    let parameter_one: f32 = f64::from_bits(parameters[0]) as f32;
+    let parameter_two: f32 = f64::from_bits(parameters[1]) as f32;
+    let parameter_three: f32 = f64::from_bits(parameters[2]) as f32;
     match should_execute {
         false => Some(f64::to_bits((spell.energy / APPLY_TO_SPELL_COEFFICIENT) * ((parameter_one * parameter_one + parameter_two * parameter_two + parameter_three * parameter_three) as f64).sqrt())),
         true => {
