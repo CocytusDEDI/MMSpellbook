@@ -7,6 +7,8 @@ use godot::classes::CsgSphere3D;
 use godot::classes::Shape3D;
 use lazy_static::lazy_static;
 use serde_json::Value;
+use spelltranslator::get_component_num;
+use spelltranslator::parse_spell;
 use std::collections::HashMap;
 
 // When a spell has energy below this level it is discarded as being insignificant
@@ -207,7 +209,11 @@ impl Spell {
             panic!("Component doesn't exist")
         }
     }
+}
 
+#[godot_api]
+impl Spell {
+    #[func]
     fn give_efficiencies(&mut self, efficiencies_json: GString) {
         let json_string = efficiencies_json.to_string();
 
@@ -215,8 +221,12 @@ impl Spell {
             Ok(Value::Object(efficiencies_object)) => {
                 let mut temp_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiencies_object {
-                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u64>(), value.as_f64()) {
-                        temp_hashmap.insert(parsed_key, parsed_value);
+                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<String>(), value.as_f64()) {
+                        if let Some(component_num) = get_component_num(&parsed_key) {
+                            temp_hashmap.insert(component_num, parsed_value);
+                        } else {
+                            panic!("Component doesn't exist");
+                        }
                     }
                 }
                 self.component_efficiencies = Some(temp_hashmap);
@@ -224,6 +234,45 @@ impl Spell {
             Ok(_) => panic!("Invalid Json: Must be object"),
             Err(_) => panic!("Invalid Json: Incorrect format")
         }
+    }
+
+    #[func]
+    fn give_instructions(&mut self, instructions_json: GString) {
+        let instructions_string = instructions_json.to_string();
+        let instructions: Vec<u64> = serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions");
+        let mut section_instructions: Vec<u64> = vec![];
+        let mut last_section: u64 = 0;
+        for instruction in instructions {
+            match instruction {
+                500 => match last_section {
+                    0 => last_section = 500,
+                    501 => {
+                        self.process_instructions = section_instructions.clone();
+                        section_instructions.clear();
+                    },
+                    _ => panic!("Invalid section")
+                },
+                501 => match last_section {
+                    0 => last_section = 501,
+                    500 => {
+                        self.ready_instructions = section_instructions.clone();
+                        section_instructions.clear();
+                    },
+                    _ => panic!("Invalid section")
+                },
+                num => section_instructions.push(num)
+            }
+        }
+        match last_section {
+            500 => self.ready_instructions = section_instructions.clone(),
+            501 => self.process_instructions = section_instructions.clone(),
+            _ => panic!("Invalid section")
+        }
+    }
+
+    #[func]
+    fn get_instructions(instructions_json: GString) -> GString {
+        return GString::from(serde_json::to_string(&parse_spell(&instructions_json.to_string()).expect("Failed to turn instructions into bytecode")).expect("Failed to parse instructions into json"))
     }
 }
 

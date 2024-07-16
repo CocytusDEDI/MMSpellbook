@@ -4,15 +4,25 @@ use crate::COMPONENT_TO_FUNCTION_MAP;
 
 const FUNCTION_NAME_SIZE: usize = 30;
 
+const ON_READY_NAME: &'static str = "when_created:";
+const PROCESS_NAME: &'static str = "repeat:";
+
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
     let mut character_accumulator = String::new();
     for line in spell_code.lines() {
+        let trimmed_line = line.trim();
         for character in line.chars() {
             if character == '(' {
-                let trimmed_line = line.trim();
                 instructions.extend(parse_component(trimmed_line)?);
                 break;
+            } else if character == ':' {
+                let section: u64 = match trimmed_line {
+                    ON_READY_NAME => 500,
+                    PROCESS_NAME => 501,
+                    _ => return Err("Invalid section name")
+                };
+                instructions.push(section)
             }
 
             character_accumulator.push(character);
@@ -59,7 +69,7 @@ lazy_static! {
 }
 
 
-fn get_component_num(component_name: &str) -> Option<u64> {
+pub fn get_component_num(component_name: &str) -> Option<u64> {
     COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name)).cloned()
 }
 

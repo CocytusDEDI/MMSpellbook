@@ -17,3 +17,6 @@
 302 = lesser than
 
 400 = if
+
+500 = ready section
+501 = process section
