@@ -20,3 +20,9 @@
 
 500 = ready section
 501 = process section
+
+600 = multiply
+601 = divide
+602 = add
+603 = subtract
+604 = power
