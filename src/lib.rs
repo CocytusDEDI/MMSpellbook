@@ -120,13 +120,13 @@ impl Spell {
                                 rpn_stack.push(self.call_component(component_code, parameters, option_delta)?.expect("Expected return from function"));
                             }
                             200 => { // And statement
-                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
                                 rpn_stack.push(custom_bool_and(bool_one, bool_two));
                             },
                             201 => { // Or statement
-                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
                                 rpn_stack.push(custom_bool_or(bool_one, bool_two));
                             },
                             202 => { // Not statement
@@ -134,9 +134,36 @@ impl Spell {
                                 rpn_stack.push(custom_bool_not(bool_one));
                             },
                             203 => { // Xor statement
-                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
                                 rpn_stack.push(custom_bool_xor(bool_one, bool_two));
+                            },
+                            300 => { // equals
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                if argumunt_one == argument_two {
+                                    rpn_stack.push(100);
+                                } else {
+                                    rpn_stack.push(101);
+                                }
+                            },
+                            301 => { // greater than
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                if argumunt_one > argument_two {
+                                    rpn_stack.push(100);
+                                } else {
+                                    rpn_stack.push(101);
+                                }
+                            },
+                            302 => { // lesser than
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                if argumunt_one < argument_two {
+                                    rpn_stack.push(100);
+                                } else {
+                                    rpn_stack.push(101);
+                                }
                             },
                             _ => panic!("Opcode doesn't exist")
                         }

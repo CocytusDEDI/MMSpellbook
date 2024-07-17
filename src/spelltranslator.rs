@@ -23,6 +23,8 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                     _ => return Err("Invalid section name")
                 };
                 instructions.push(section)
+            } else if character_accumulator == "if" {
+                // give to parsing_logic
             }
 
             character_accumulator.push(character);
@@ -31,7 +33,15 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     }
     return Ok(instructions)
 }
+/*
+fn parse_logic(conditions: &str) -> Vec<u64> {
 
+}
+
+fn shunting_yard_algorthim(conditions: Vec<u64>) -> Vec<u64> {
+
+}
+*/
 fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
     let mut component_vec: Vec<u64> = vec![103];
     let (component_name, parameters) = parse_component_string(component_call)?;
@@ -68,6 +78,13 @@ lazy_static! {
     };
 }
 
+lazy_static! {
+    static ref TEXT_TO_OPCODE_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u64> = {
+        let mut component_map = HashMap::new();
+        component_map.insert(pad_component_name("give_velocity"), 0);
+        component_map
+    };
+}
 
 pub fn get_component_num(component_name: &str) -> Option<u64> {
     COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name)).cloned()
