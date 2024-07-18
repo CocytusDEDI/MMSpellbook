@@ -7,9 +7,12 @@ const FUNCTION_NAME_SIZE: usize = 30;
 const ON_READY_NAME: &'static str = "when_created:";
 const PROCESS_NAME: &'static str = "repeat:";
 
+// ToDo: Rework parse_spell to be more robust. Go step by step, ensuring that the spell_code is in the correct format.
+// ToDo: Add in end of scope to the end of the if statement when indent goes down.
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
     let mut character_accumulator = String::new();
+    let mut expected_indent: u32 = 0;
     for line in spell_code.lines() {
         let trimmed_line = line.trim();
         for character in line.chars() {
@@ -24,24 +27,119 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                 };
                 instructions.push(section)
             } else if character_accumulator == "if" {
-                // give to parsing_logic
+                instructions.push(400); // Indicates if statement
+                instructions.extend(parse_logic(&trimmed_line[3..])?);
+                instructions.push(0); // Indicates end of scope for logic
+                expected_indent += 1;
             }
-
             character_accumulator.push(character);
         }
         character_accumulator.clear();
     }
     return Ok(instructions)
 }
-/*
-fn parse_logic(conditions: &str) -> Vec<u64> {
 
+fn get_precedence(operator: &str) -> u64 {
+    match operator {
+        "(" | ")" => 0,
+        "and" | "or" | "xor" => 1,
+        ">" | "<" | "=" | "==" => 2,
+        "+" | "-" => 3,
+        "x" | "*" | "/" => 4,
+        "^" => 5,
+        "not" => 6,
+        _ => panic!("Not valid operator")
+    }
 }
 
-fn shunting_yard_algorthim(conditions: Vec<u64>) -> Vec<u64> {
-
+#[derive(PartialEq, Eq)]
+enum Direction {
+    Left,
+    Right
 }
-*/
+
+fn get_associative_direction(operator: &str) -> Direction {
+    match operator {
+        "and" | "or" | "xor" | "+" | "-" | "x" | "*" | "/" | "^" | "=" | "==" | ">" | "<" => Direction::Left,
+        "not" => Direction::Right,
+        _ => panic!("Not valid operator")
+    }
+}
+
+fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
+    // Uses the Shunting Yard Algorithm to turn player written infix code into executeable postfix (RPN) code
+    let mut holding_stack: Vec<&str> = vec![];
+    let mut output: Vec<&str> = vec![];
+    for condition in conditions.split_whitespace() {
+        match condition {
+            "and" | "or" | "xor" | "+" | "-" | "x" | "*" | "/" | "^" | "=" | "==" | ">" | "<" | "not" => {
+                while true {
+                    if let Some(&operator) = holding_stack.last() {
+                        if get_precedence(operator) < get_precedence(condition) {
+                            holding_stack.push(condition);
+                            break;
+                        } else if get_precedence(operator) > get_precedence(condition) {
+                            output.push(holding_stack.pop().expect("Shouldn't be possible to reach"));
+                        } else { // Must be equal in this case
+                            if get_associative_direction(operator) == Direction::Left {
+                                output.push(holding_stack.pop().expect("Shouldn't be possible to reach"));
+                            } else {
+                                output.push(operator);
+                            }
+                        }
+                    } else {
+                        holding_stack.push(condition);
+                        break;
+                    }
+                }
+            },
+            "(" => {
+                holding_stack.push(condition)
+            }
+            ")" => {
+                let mut operator = holding_stack.pop().ok_or("Expected opening bracket")?;
+                while operator != "(" {
+                    output.push(operator);
+                    operator = holding_stack.pop().ok_or("Expected opening bracket")?;
+                }
+            }
+            possible_num => {
+                if let Ok(_) = possible_num.parse::<f64>() {
+                    output.push(possible_num);
+                } else {
+                    return Err("Invalid condition")
+                }
+            }
+        }
+    }
+    let mut bit_conditions: Vec<u64> = vec![];
+    for condition in output {
+        match condition {
+            "and" => bit_conditions.push(200),
+            "or" => bit_conditions.push(201),
+            "not" => bit_conditions.push(202),
+            "xor" => bit_conditions.push(203),
+            "==" | "=" => bit_conditions.push(300),
+            ">" => bit_conditions.push(301),
+            "<" => bit_conditions.push(302),
+            "x" | "*" => bit_conditions.push(600),
+            "/" => bit_conditions.push(601),
+            "+" => bit_conditions.push(602),
+            "-" => bit_conditions.push(603),
+            "^" => bit_conditions.push(604),
+            possible_num => {
+                if let Ok(num) = possible_num.parse::<f64>() {
+                    bit_conditions.push(102); // Indicates number literal
+                    bit_conditions.push(num.to_bits());
+                } else {
+                    return Err("Couldn't translate condition into bytecode")
+                }
+            }
+        }
+    }
+    return Ok(bit_conditions);
+}
+
 fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
     let mut component_vec: Vec<u64> = vec![103];
     let (component_name, parameters) = parse_component_string(component_call)?;
