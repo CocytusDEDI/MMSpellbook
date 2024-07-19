@@ -42,7 +42,7 @@ impl IArea3D for Spell {
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: vec![],
             process_instructions: vec![],
-            component_efficiencies: None // Replace None with the following commented out code to run manually without providing efficiencies through json:
+            component_efficiencies: None // Replace None with the following commented out code to run manually without providing efficiencies through json (not that any components you want to use must have entries in this code if done manually):
             /*
                 {
                 let mut component_efficiencies_map = HashMap::new();
@@ -245,6 +245,7 @@ impl Spell {
     }
 }
 
+// Code in this impl block is meant to be called from the games code
 #[godot_api]
 impl Spell {
     #[func]

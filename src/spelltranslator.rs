@@ -7,8 +7,6 @@ const FUNCTION_NAME_SIZE: usize = 30;
 const ON_READY_NAME: &'static str = "when_created:";
 const PROCESS_NAME: &'static str = "repeat:";
 
-// ToDo: Rework parse_spell to be more robust. Go step by step, ensuring that the spell_code is in the correct format.
-// ToDo: Add in end of scope to the end of the if statement when indent goes down.
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
     let mut in_section = false;
@@ -87,7 +85,7 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
     for condition in conditions.split_whitespace() {
         match condition {
             "and" | "or" | "xor" | "+" | "-" | "x" | "*" | "/" | "^" | "=" | "==" | ">" | "<" | "not" => {
-                while true {
+                loop {
                     if let Some(&operator) = holding_stack.last() {
                         if get_precedence(operator) < get_precedence(condition) {
                             holding_stack.push(condition);
@@ -129,6 +127,7 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
             }
         }
     }
+    // Pop remaining operators off holding stack and push to output
     for _ in 0..holding_stack.len() {
         output.push(holding_stack.pop().expect("Expected to work: Program logic fault"));
     }
