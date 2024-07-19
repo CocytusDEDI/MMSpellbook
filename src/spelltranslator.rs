@@ -11,32 +11,46 @@ const PROCESS_NAME: &'static str = "repeat:";
 // ToDo: Add in end of scope to the end of the if statement when indent goes down.
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
-    let mut character_accumulator = String::new();
-    let mut expected_indent: u32 = 0;
+    let mut in_section = false;
+    let mut expected_closing_brackets: usize = 0;
     for line in spell_code.lines() {
         let trimmed_line = line.trim();
-        for character in line.chars() {
-            if character == '(' {
-                instructions.extend(parse_component(trimmed_line)?);
-                break;
-            } else if character == ':' {
-                let section: u64 = match trimmed_line {
-                    ON_READY_NAME => 500,
-                    PROCESS_NAME => 501,
-                    _ => return Err("Invalid section name")
-                };
-                instructions.push(section)
-            } else if character_accumulator == "if" {
-                instructions.push(400); // Indicates if statement
-                instructions.extend(parse_logic(&trimmed_line[3..])?);
-                instructions.push(0); // Indicates end of scope for logic
-                expected_indent += 1;
+        match in_section { // Check if in section
+            false => { // if not in section, check if line is a valid section
+                if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_') {
+                    let section: u64 = match trimmed_line {
+                        ON_READY_NAME => 500,
+                        PROCESS_NAME => 501,
+                        _ => return Err("Invalid section name")
+                    };
+                    instructions.push(section);
+                    in_section = true;
+                } else {
+                    return Err("Must begin with section statement");
+                }
+            },
+            true => { // If in section, parse code
+                if trimmed_line.ends_with(")") { // Checking to see if component
+                    instructions.extend(parse_component(trimmed_line)?);
+                } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") {
+                    instructions.push(400); // Indicates if statement
+                    instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
+                    instructions.push(0); // Indicates end of scope for logic
+                    expected_closing_brackets += 1;
+                } else if expected_closing_brackets > 0 && trimmed_line == "}" {
+                    instructions.push(0);
+                    expected_closing_brackets -= 1;
+                } else {
+                    return Err("Not acceptable statement")
+                }
             }
-            character_accumulator.push(character);
         }
-        character_accumulator.clear();
     }
-    return Ok(instructions)
+    if expected_closing_brackets == 0 {
+        return Ok(instructions)
+    } else {
+        return Err("Expected closing bracket(s)")
+    }
 }
 
 fn get_precedence(operator: &str) -> u64 {
@@ -95,14 +109,17 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
             },
             "(" => {
                 holding_stack.push(condition)
-            }
+            },
             ")" => {
                 let mut operator = holding_stack.pop().ok_or("Expected opening bracket")?;
                 while operator != "(" {
                     output.push(operator);
                     operator = holding_stack.pop().ok_or("Expected opening bracket")?;
                 }
-            }
+            },
+            "true" | "false" => {
+                output.push(condition);
+            },
             possible_num => {
                 if let Ok(_) = possible_num.parse::<f64>() {
                     output.push(possible_num);
@@ -111,6 +128,9 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
                 }
             }
         }
+    }
+    for _ in 0..holding_stack.len() {
+        output.push(holding_stack.pop().expect("Expected to work: Program logic fault"));
     }
     let mut bit_conditions: Vec<u64> = vec![];
     for condition in output {
@@ -127,6 +147,8 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
             "+" => bit_conditions.push(602),
             "-" => bit_conditions.push(603),
             "^" => bit_conditions.push(604),
+            "true" => bit_conditions.push(100),
+            "false" => bit_conditions.push(101),
             possible_num => {
                 if let Ok(num) = possible_num.parse::<f64>() {
                     bit_conditions.push(102); // Indicates number literal
@@ -162,22 +184,8 @@ fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE
     padded_name
 }
 
-fn decode_component_name(padded_name: &[Option<char>; FUNCTION_NAME_SIZE]) -> String {
-    padded_name.iter()
-    .filter_map(|&character| character)
-    .collect()
-}
-
 lazy_static! {
     static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u64> = {
-        let mut component_map = HashMap::new();
-        component_map.insert(pad_component_name("give_velocity"), 0);
-        component_map
-    };
-}
-
-lazy_static! {
-    static ref TEXT_TO_OPCODE_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u64> = {
         let mut component_map = HashMap::new();
         component_map.insert(pad_component_name("give_velocity"), 0);
         component_map
@@ -302,5 +310,31 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
         1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().expect("Couldn't parse parameter: should be float"))),
         2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().expect("Couldn't parse parameter: should be boolean"))),
         _ => Err("Invalid parameters: parameter doesn't match expected type")
+    }
+}
+
+// Tests to check that the library is working properly
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_parse_spell() {
+        assert_eq!(parse_spell(""), Ok(vec![]));
+    }
+
+    #[test]
+    fn basic_and_logic_parse() {
+        assert_eq!(parse_logic("true and false or true"), Ok(vec![100, 101, 200, 100, 201]));
+    }
+
+    #[test]
+    fn parse_basic_spell() {
+        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![500, 103, 0, f64::to_bits(1.0), f64::to_bits(1.0), f64::to_bits(1.0)]))
+    }
+
+    #[test]
+    fn parse_if_statement() {
+        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 0, 103, 0, f64::to_bits(1.0), 0, 0, 0]))
     }
 }

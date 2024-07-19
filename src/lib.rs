@@ -95,7 +95,7 @@ impl Spell {
             match bits {
                 0 => {}, // 0 = end of scope, if reached naturely, move on
                 103 => { // 103 = component
-                    let component_code = *instructions_iter.next().expect("Expected component");
+                    let component_code = instructions_iter.next().expect("Expected component");
                     let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
                     let mut parameters: Vec<u64> = vec![];
                     for _ in 0..number_of_component_parameters {
@@ -111,7 +111,7 @@ impl Spell {
                             100..=101 => rpn_stack.push(if_bits), // true and false
                             102 => rpn_stack.push(*instructions_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
                             103 => { // Component
-                                let component_code = *instructions_iter.next().expect("Expected component");
+                                let component_code = instructions_iter.next().expect("Expected component");
                                 let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
                                 let mut parameters: Vec<u64> = vec![];
                                 for _ in 0..number_of_component_parameters {
@@ -167,14 +167,22 @@ impl Spell {
                             },
                             _ => panic!("Opcode doesn't exist")
                         }
+                    }
                     match rpn_stack.pop().expect("Expected final bool") {
                         100 => {}, // if true, execute by going back into normal loop
                         101 => { // if false, skip to the end of scope
-                            let mut skip_amount: u32 = 1;
+                            let mut skip_amount: usize = 1;
                             while let Some(&skipping_bits) = instructions_iter.next() {
                                 match skipping_bits {
                                     0 => skip_amount -= 1, // If end of scope
                                     102 => _ = instructions_iter.next(), // Ignores number literals
+                                    103 => {
+                                        let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
+                                        let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
+                                        for _ in 0..number_of_component_parameters {
+                                            _ = instructions_iter.next();
+                                        }
+                                    }
                                     400 => skip_amount += 2, // Ignore next two end of scopes because if statements have two end of scopes
                                     _ => {}
                                 }
@@ -185,7 +193,6 @@ impl Spell {
                         }
                         _ => panic!("Expected bool")
                     };
-                    }
                 },
                 _ => panic!("Not valid opcode")
             }
@@ -194,7 +201,7 @@ impl Spell {
     }
 
 
-    fn call_component(&mut self, component_code: u64, parameters: Vec<u64>, option_delta: Option<f64>) -> Result<Option<u64>, ()> {
+    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>, option_delta: Option<f64>) -> Result<Option<u64>, ()> {
         let delta = match option_delta {
             Some(num) => num,
             None => 1.0
@@ -229,7 +236,7 @@ impl Spell {
         }
     }
 
-    fn get_number_of_component_parameters(&self, component_code: u64) -> u64 {
+    fn get_number_of_component_parameters(&self, component_code: &u64) -> u64 {
         if let Some((_, number_of_parameters)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
             return number_of_parameters.len() as u64
         } else {
@@ -344,4 +351,3 @@ fn custom_bool_not(first: u64) -> u64 {
         _ => panic!("Parameters must be 100 or 101")
     }
 }
-

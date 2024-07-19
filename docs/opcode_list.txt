@@ -15,7 +15,6 @@
 300 = equals
 301 = greater than
 302 = lesser than
-
 400 = if
 
 500 = ready section
