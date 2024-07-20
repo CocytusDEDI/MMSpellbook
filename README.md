@@ -8,11 +8,11 @@ MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows 
 - Write GDScript code to interact with spell code:
     - Create a new spell using `Spell.new()`
     - Create an efficiency dictionary of component names to efficiency values (real numbers) and give it to the spell using the method `.give_efficiencies()` on your spell 
+    - Give the spell energy with `.give_energy()`
     - Create instructions for the spell (you can follow the documentation for the formatting) and then give those instructions to the method `.get_instructions()` which will return a json list containing the spell code. This spell code can then be given to the method `.give_instructions()` to give the spell the instructions.
     - Make the spell a child of a none moving object (not the player) and give the spell the initial position of the player. You can find the initial position of the player with the `.global_position()` method (has to be used on the player not the spell) and then give that position to the spell use the method `.set_position()` on your spell.
 - Run the game
 
 ## Missing features
 - Updating efficiencies after casting
-- Can't process maths in if statements
 - No error handling between GDScript and MMSpellbook
