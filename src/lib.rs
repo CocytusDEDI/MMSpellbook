@@ -28,6 +28,7 @@ mod component_functions;
 struct Spell {
     base: Base<Area3D>,
     energy: f64,
+    energy_lose_rate: f64,
     velocity: Vector3,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<u64>,
@@ -41,6 +42,7 @@ impl IArea3D for Spell {
         Self {
             base,
             energy: 0.0,
+            energy_lose_rate: 0.005,
             velocity: Vector3::new(0.0, 0.0, 0.0),
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: vec![],
@@ -69,11 +71,19 @@ impl IArea3D for Spell {
     }
 
     fn physics_process(&mut self, delta: f64) {
+        // Handle velocity
         let f32_delta: f32 = delta as f32;
         let previous_position = self.base_mut().get_position();
         let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
         self.base_mut().set_position(new_position);
+
+        // Hanlde instructions
         self.spell_virtual_machine(&self.process_instructions.clone());
+
+        // Handle energy lose
+        self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
+
+        // Check if spell should be deleted
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.base_mut().queue_free();
         }
@@ -275,7 +285,7 @@ impl Spell {
 #[godot_api]
 impl Spell {
     #[func]
-    fn give_efficiencies(&mut self, efficiencies_json: GString) {
+    fn set_efficiencies(&mut self, efficiencies_json: GString) {
         let json_string = efficiencies_json.to_string();
 
         match serde_json::from_str(&json_string) {
@@ -298,7 +308,7 @@ impl Spell {
     }
 
     #[func]
-    fn give_instructions(&mut self, instructions_json: GString) {
+    fn set_instructions(&mut self, instructions_json: GString) {
         let instructions_string = instructions_json.to_string();
         let instructions: Vec<u64> = serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions");
         let mut section_instructions: Vec<u64> = vec![];
@@ -335,13 +345,23 @@ impl Spell {
     }
 
     #[func]
-    fn get_instructions(instructions_json: GString) -> GString {
+    fn get_bytecode_instructions(instructions_json: GString) -> GString {
         return GString::from(serde_json::to_string(&parse_spell(&instructions_json.to_string()).expect("Failed to turn instructions into bytecode")).expect("Failed to parse instructions into json"))
     }
 
     #[func]
-    fn give_energy(&mut self, energy: f64) {
+    fn set_energy(&mut self, energy: f64) {
         self.energy = energy;
+    }
+
+    #[func]
+    fn get_energy(&self) -> f64 {
+        self.energy
+    }
+
+    #[func]
+    fn set_energy_lose_rate(&mut self, energy_lose_rate: f64) {
+        self.energy_lose_rate = energy_lose_rate;
     }
 }
 
