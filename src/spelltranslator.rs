@@ -260,8 +260,6 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
     let mut parameter = String::new();
     let mut parameters: Vec<Parameter> = vec![];
 
-    // ToDo: Use COMPONENT_TO_FUNCTION_MAP to find expected parameter type and attempt to convert it
-
     let mut index = 0;
 
     if let Some((_, encoded_types)) = COMPONENT_TO_FUNCTION_MAP.get(&get_component_num(component_name).expect("Expected component")) {

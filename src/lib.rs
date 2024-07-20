@@ -165,6 +165,31 @@ impl Spell {
                                     rpn_stack.push(101);
                                 }
                             },
+                            600 => { // multiply
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                rpn_stack.push(f64::to_bits(argumunt_one * argument_two));
+                            }
+                            601 => { // divide
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                rpn_stack.push(f64::to_bits(argumunt_one / argument_two));
+                            }
+                            602 => { // add
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                rpn_stack.push(f64::to_bits(argumunt_one + argument_two));
+                            }
+                            603 => { // subtract
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                rpn_stack.push(f64::to_bits(argumunt_one * argument_two));
+                            }
+                            604 => { // power
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                rpn_stack.push(f64::to_bits(argumunt_one.powf(argument_two)));
+                            }
                             _ => panic!("Opcode doesn't exist")
                         }
                     }
