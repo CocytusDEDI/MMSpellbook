@@ -1,3 +1,4 @@
+use godot::meta::GodotType;
 use godot::prelude::*;
 use godot::classes::Area3D;
 use godot::classes::IArea3D;
@@ -27,6 +28,7 @@ mod component_functions;
 struct Spell {
     base: Base<Area3D>,
     energy: f64,
+    velocity: Vector3,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<u64>,
     component_efficiencies: Option<HashMap<u64, f64>>
@@ -38,7 +40,8 @@ impl IArea3D for Spell {
     fn init(base: Base<Area3D>) -> Self {
         Self {
             base,
-            energy: 10.0,
+            energy: 0.0,
+            velocity: Vector3::new(0.0, 0.0, 0.0),
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: vec![],
             process_instructions: vec![],
@@ -59,14 +62,18 @@ impl IArea3D for Spell {
         collision_shape.set_shape(shape.upcast::<Shape3D>());
         self.base_mut().add_child(collision_shape.upcast());
         self.base_mut().add_child(CsgSphere3D::new_alloc().upcast());
-        self.spell_virtual_machine(&self.ready_instructions.clone(), None);
+        self.spell_virtual_machine(&self.ready_instructions.clone());
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.base_mut().queue_free();
         }
     }
 
     fn physics_process(&mut self, delta: f64) {
-        self.spell_virtual_machine(&self.process_instructions.clone(), Some(delta));
+        let f32_delta: f32 = delta as f32;
+        let previous_position = self.base_mut().get_position();
+        let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
+        self.base_mut().set_position(new_position);
+        self.spell_virtual_machine(&self.process_instructions.clone());
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.base_mut().queue_free();
         }
@@ -78,18 +85,16 @@ static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64)
     // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
-    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, &'static[u64])> = {
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<u64>, &'static[u64])> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], f64, bool) -> Option<u64>, COMPONENT_0_ARGS));
+        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<u64>, COMPONENT_0_ARGS));
         return component_map
     };
 }
 
 
 impl Spell {
-    fn spell_virtual_machine(&mut self, instructions: &[u64], option_delta: Option<f64>) -> Result<(), ()> {
-        // ToDo: Code such as rpn evaluation should be in it's own subroutine to be available to call for other logic statements.
-        // ToDo: Decide to remove or not remove strings from Parameter
+    fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), ()> {
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
@@ -101,7 +106,7 @@ impl Spell {
                     for _ in 0..number_of_component_parameters {
                         parameters.push(*instructions_iter.next().expect("Expected parameter"));
                     }
-                    self.call_component(component_code, parameters, option_delta)?;
+                    self.call_component(component_code, parameters)?;
                 },
                 400 => { // 400 = if statement
                     let mut rpn_stack: Vec<u64> = vec![];
@@ -117,7 +122,7 @@ impl Spell {
                                 for _ in 0..number_of_component_parameters {
                                     parameters.push(*instructions_iter.next().expect("Expected parameter"));
                                 }
-                                rpn_stack.push(self.call_component(component_code, parameters, option_delta)?.expect("Expected return from function"));
+                                rpn_stack.push(self.call_component(component_code, parameters)?.expect("Expected return from function"));
                             }
                             200 => { // And statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
@@ -226,20 +231,16 @@ impl Spell {
     }
 
 
-    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>, option_delta: Option<f64>) -> Result<Option<u64>, ()> {
-        let delta = match option_delta {
-            Some(num) => num,
-            None => 1.0
-        };
+    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<u64>, ()> {
         if let Some((function, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
             if let Some(component_efficiencies) = self.component_efficiencies.clone() {
                 if let Some(efficiency) = component_efficiencies.get(&component_code) {
-                    if let Some(base_energy) = function(self, &parameters, delta, false) {
+                    if let Some(base_energy) = function(self, &parameters, false) {
                         let base_energy = f64::from_bits(base_energy);
                         let energy_needed = base_energy / efficiency;
                         if self.energy >= energy_needed {
                             self.energy -= energy_needed;
-                            if let Some(value) = function(self, &parameters, delta, true) {
+                            if let Some(value) = function(self, &parameters, true) {
                                 return Ok(Some(value))
                             } else {
                                 return Ok(None)
@@ -307,6 +308,7 @@ impl Spell {
                 500 => match last_section {
                     0 => last_section = 500,
                     501 => {
+                        last_section = 500;
                         self.process_instructions = section_instructions.clone();
                         section_instructions.clear();
                     },
@@ -315,6 +317,7 @@ impl Spell {
                 501 => match last_section {
                     0 => last_section = 501,
                     500 => {
+                        last_section = 501;
                         self.ready_instructions = section_instructions.clone();
                         section_instructions.clear();
                     },
@@ -326,6 +329,7 @@ impl Spell {
         match last_section {
             500 => self.ready_instructions = section_instructions.clone(),
             501 => self.process_instructions = section_instructions.clone(),
+            0 => {},
             _ => panic!("Invalid section")
         }
     }
@@ -333,6 +337,11 @@ impl Spell {
     #[func]
     fn get_instructions(instructions_json: GString) -> GString {
         return GString::from(serde_json::to_string(&parse_spell(&instructions_json.to_string()).expect("Failed to turn instructions into bytecode")).expect("Failed to parse instructions into json"))
+    }
+
+    #[func]
+    fn give_energy(&mut self, energy: f64) {
+        self.energy = energy;
     }
 }
 
