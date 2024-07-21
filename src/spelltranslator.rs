@@ -7,6 +7,9 @@ const FUNCTION_NAME_SIZE: usize = 30;
 const ON_READY_NAME: &'static str = "when_created:";
 const PROCESS_NAME: &'static str = "repeat:";
 
+
+// ToDo: allow for no spaces in maths
+// ToDo: Test rpn is valid: may require some sort of return type system for components
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
     let mut in_section = false;

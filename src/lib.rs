@@ -1,4 +1,3 @@
-use godot::meta::GodotType;
 use godot::prelude::*;
 use godot::classes::Area3D;
 use godot::classes::IArea3D;
@@ -14,6 +13,8 @@ use std::collections::HashMap;
 
 // When a spell has energy below this level it is discarded as being insignificant
 const ENERGY_CONSIDERATION_LEVEL: f64 = 0.001;
+
+const EFFICIENCY_INCREASE_RATE: f64 = 10.0;
 
 struct MyExtension;
 
@@ -32,7 +33,7 @@ struct Spell {
     velocity: Vector3,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<u64>,
-    component_efficiencies: Option<HashMap<u64, f64>>
+    component_cast_counts: HashMap<u64, f64>
 }
 
 
@@ -47,24 +48,22 @@ impl IArea3D for Spell {
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: vec![],
             process_instructions: vec![],
-            component_efficiencies: None // Replace None with the following commented out code to run manually without providing efficiencies through json (not that any components you want to use must have entries in this code if done manually):
-            /*
-                {
-                let mut component_efficiencies_map = HashMap::new();
-                component_efficiencies_map.insert(0, 0.5);
-                Some(component_efficiencies_map)
-            }
-            */
+            component_cast_counts: HashMap::new()
         }
     }
 
     fn ready(&mut self) {
+        // Creating visual representation of spell in godot (not required, just a place holder)
         let mut collision_shape: Gd<CollisionShape3D> = CollisionShape3D::new_alloc();
         let shape = SphereShape3D::new_gd();
         collision_shape.set_shape(shape.upcast::<Shape3D>());
         self.base_mut().add_child(collision_shape.upcast());
         self.base_mut().add_child(CsgSphere3D::new_alloc().upcast());
+
+        // Hanlde instructions
         self.spell_virtual_machine(&self.ready_instructions.clone());
+
+        // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.base_mut().queue_free();
         }
@@ -83,7 +82,7 @@ impl IArea3D for Spell {
         // Handle energy lose
         self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
 
-        // Check if spell should be deleted
+        // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.base_mut().queue_free();
         }
@@ -95,9 +94,9 @@ static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64)
     // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
-    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<u64>, &'static[u64])> = {
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64])> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<u64>, COMPONENT_0_ARGS));
+        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS));
         return component_map
     };
 }
@@ -132,7 +131,7 @@ impl Spell {
                                 for _ in 0..number_of_component_parameters {
                                     parameters.push(*instructions_iter.next().expect("Expected parameter"));
                                 }
-                                rpn_stack.push(self.call_component(component_code, parameters)?.expect("Expected return from function"));
+                                rpn_stack.extend(self.call_component(component_code, parameters)?.expect("Expected return from function"));
                             }
                             200 => { // And statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
@@ -241,31 +240,37 @@ impl Spell {
     }
 
 
-    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<u64>, ()> {
+    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<Vec<u64>>, ()> {
+        // Getting component cast count
         if let Some((function, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-            if let Some(component_efficiencies) = self.component_efficiencies.clone() {
-                if let Some(efficiency) = component_efficiencies.get(&component_code) {
-                    if let Some(base_energy) = function(self, &parameters, false) {
-                        let base_energy = f64::from_bits(base_energy);
-                        let energy_needed = base_energy / efficiency;
-                        if self.energy >= energy_needed {
-                            self.energy -= energy_needed;
-                            if let Some(value) = function(self, &parameters, true) {
-                                return Ok(Some(value))
-                            } else {
-                                return Ok(None)
-                            }
-                        } else {
-                            return Err(())
-                        }
+            let mut component_cast_count = self.component_cast_counts.entry(*component_code).or_insert(1.0).clone();
+
+            // Getting energy required
+            if let Some(base_energy_bits) = function(self, &parameters, false) {
+                let base_energy = f64::from_bits(*base_energy_bits.first().expect("Expected energy useage return"));
+                // Getting efficiency from component_cast_count
+                let efficiency = component_cast_count / (component_cast_count + EFFICIENCY_INCREASE_RATE);
+
+                let energy_needed = base_energy / efficiency;
+                if self.energy >= energy_needed {
+                    self.energy -= energy_needed;
+
+                    // Updating component cast count
+                    component_cast_count += 1.0;
+                    self.component_cast_counts.insert(*component_code, component_cast_count);
+
+                    // ToDo: planned on using signals here to inform GDScript that efficencies need updating
+
+                    if let Some(value) = function(self, &parameters, true) {
+                        return Ok(Some(value))
                     } else {
-                        panic!("Function should return base_energy when should_execute is false")
+                        return Ok(None)
                     }
                 } else {
-                    panic!("Function does not have an efficiency")
+                    return Err(()) // Not enough energy to cast. Maybe change error type to inform what component or what line of bytecode couldn't be cast
                 }
             } else {
-                panic!("Component efficiencies not given")
+                panic!("Function should return base_energy when should_execute is false")
             }
         } else {
             panic!("Component does not exist")
@@ -281,17 +286,16 @@ impl Spell {
     }
 }
 
-// Code in this impl block is meant to be called from the games code
 #[godot_api]
 impl Spell {
     #[func]
-    fn set_efficiencies(&mut self, efficiencies_json: GString) {
-        let json_string = efficiencies_json.to_string();
+    fn set_cast_counts(&mut self, cast_counts_json: GString) {
+        let json_string = cast_counts_json.to_string();
 
         match serde_json::from_str(&json_string) {
-            Ok(Value::Object(efficiencies_object)) => {
+            Ok(Value::Object(cast_counts_object)) => {
                 let mut temp_hashmap: HashMap<u64, f64> = HashMap::new();
-                for (key, value) in efficiencies_object {
+                for (key, value) in cast_counts_object {
                     if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<String>(), value.as_f64()) {
                         if let Some(component_num) = get_component_num(&parsed_key) {
                             temp_hashmap.insert(component_num, parsed_value);
@@ -300,7 +304,7 @@ impl Spell {
                         }
                     }
                 }
-                self.component_efficiencies = Some(temp_hashmap);
+                self.component_cast_counts = temp_hashmap;
             },
             Ok(_) => panic!("Invalid Json: Must be object"),
             Err(_) => panic!("Invalid Json: Incorrect format")
