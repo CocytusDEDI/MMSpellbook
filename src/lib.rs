@@ -57,8 +57,8 @@ impl IArea3D for Spell {
         let mut collision_shape: Gd<CollisionShape3D> = CollisionShape3D::new_alloc();
         let shape = SphereShape3D::new_gd();
         collision_shape.set_shape(shape.upcast::<Shape3D>());
-        self.base_mut().add_child(collision_shape.upcast());
-        self.base_mut().add_child(CsgSphere3D::new_alloc().upcast());
+        self.base_mut().add_child(collision_shape.upcast::<Node>());
+        self.base_mut().add_child(CsgSphere3D::new_alloc().upcast::<Node>());
 
         // Hanlde instructions
         self.spell_virtual_machine(&self.ready_instructions.clone());
