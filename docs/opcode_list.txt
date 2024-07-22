@@ -1,5 +1,3 @@
-// Only component is implemented currently. true and false are semi implemented.
-
 000 = end of scope
 
 100 = true

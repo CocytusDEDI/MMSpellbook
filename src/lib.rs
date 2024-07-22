@@ -89,14 +89,20 @@ impl IArea3D for Spell {
     }
 }
 
+enum ReturnType {
+    Float,
+    Boolean,
+    None
+}
+
 static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
 
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64)
     // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
-    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64])> = {
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
-        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS));
+        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
         return component_map
     };
 }
@@ -110,7 +116,7 @@ impl Spell {
                 0 => {}, // 0 = end of scope, if reached naturely, move on
                 103 => { // 103 = component
                     let component_code = instructions_iter.next().expect("Expected component");
-                    let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
+                    let number_of_component_parameters = get_number_of_component_parameters(component_code);
                     let mut parameters: Vec<u64> = vec![];
                     for _ in 0..number_of_component_parameters {
                         parameters.push(*instructions_iter.next().expect("Expected parameter"));
@@ -126,7 +132,7 @@ impl Spell {
                             102 => rpn_stack.push(*instructions_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
                             103 => { // Component
                                 let component_code = instructions_iter.next().expect("Expected component");
-                                let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
+                                let number_of_component_parameters = get_number_of_component_parameters(component_code);
                                 let mut parameters: Vec<u64> = vec![];
                                 for _ in 0..number_of_component_parameters {
                                     parameters.push(*instructions_iter.next().expect("Expected parameter"));
@@ -217,7 +223,7 @@ impl Spell {
                                     102 => _ = instructions_iter.next(), // Ignores number literals
                                     103 => {
                                         let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
-                                        let number_of_component_parameters = self.get_number_of_component_parameters(component_code);
+                                        let number_of_component_parameters = get_number_of_component_parameters(component_code);
                                         for _ in 0..number_of_component_parameters {
                                             _ = instructions_iter.next();
                                         }
@@ -242,7 +248,7 @@ impl Spell {
 
     fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<Vec<u64>>, ()> {
         // Getting component cast count
-        if let Some((function, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
+        if let Some((function, _, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
             let mut component_cast_count = self.component_cast_counts.entry(*component_code).or_insert(1.0).clone();
 
             // Getting energy required
@@ -259,7 +265,8 @@ impl Spell {
                     component_cast_count += 1.0;
                     self.component_cast_counts.insert(*component_code, component_cast_count);
 
-                    // ToDo: planned on using signals here to inform GDScript that efficencies need updating
+                    // Emit signal to say component has been cast
+                    self.emit_component_cast(*component_code, base_energy);
 
                     if let Some(value) = function(self, &parameters, true) {
                         return Ok(Some(value))
@@ -276,13 +283,13 @@ impl Spell {
             panic!("Component does not exist")
         }
     }
+}
 
-    fn get_number_of_component_parameters(&self, component_code: &u64) -> u64 {
-        if let Some((_, number_of_parameters)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-            return number_of_parameters.len() as u64
-        } else {
-            panic!("Component doesn't exist")
-        }
+fn get_number_of_component_parameters(component_code: &u64) -> u64 {
+    if let Some((_, number_of_parameters, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
+        return number_of_parameters.len() as u64
+    } else {
+        panic!("Component doesn't exist")
     }
 }
 
@@ -367,6 +374,20 @@ impl Spell {
     fn set_energy_lose_rate(&mut self, energy_lose_rate: f64) {
         self.energy_lose_rate = energy_lose_rate;
     }
+
+    #[func]
+    fn connect_player(&mut self, &player: Gd<Node>) {
+        let update_function = player.callable("update_component_call_count");
+        self.base_mut().connect("component_cast".into(), update_function);
+    }
+
+    #[func]
+    fn emit_component_cast(&mut self, component_code: u64, base_energy: f64) {
+        self.base_mut().emit_signal("component_cast".into(), &[Variant::from(component_code), Variant::from(base_energy)]);
+    }
+
+    #[signal]
+    fn component_cast(component_code: u64, base_energy: f64);
 }
 
 fn custom_bool_and(first: u64, second: u64) -> u64 {
