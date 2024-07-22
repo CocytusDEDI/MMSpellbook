@@ -81,52 +81,146 @@ fn get_associative_direction(operator: &str) -> Direction {
     }
 }
 
+enum Token {
+    Opcode(String),
+    Number(String),
+    Boolean(String),
+    Component(String),
+    LeftBracket,
+    RightBracket
+}
+
+fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
+    let mut tokens: Vec<Token> = Vec::new();
+    let mut characters = conditions.chars().peekable();
+
+    while let Some(&character) = characters.peek() {
+        match character {
+            ' ' => {
+                characters.next();
+            },
+            '(' => {
+                tokens.push(Token::LeftBracket);
+                characters.next();
+            },
+            ')' => {
+                tokens.push(Token::RightBracket);
+                characters.next();
+            },
+            '+' | '-' | '*' | '/' | '^' | '=' | '>' | '<' => {
+                let mut opcode = String::new();
+                opcode.push(characters.next().unwrap());
+                if let Some('=') = characters.peek() {
+                    opcode.push(characters.next().unwrap());
+                }
+                tokens.push(Token::Opcode(opcode));
+            },
+            'a'..='z' | 'A'..='Z' => {
+                let mut opcode = String::new();
+                while let Some(&letter) = characters.peek() {
+                    if letter.is_alphanumeric() {
+                        opcode.push(letter);
+                        characters.next();
+                    } else {
+                        break;
+                    }
+                }
+                if let Some('(') = characters.peek() {
+                    opcode.push(characters.next().unwrap()); // Push LeftBracket
+                    loop {
+                        if let Some(')') = characters.peek() {
+                            // Push closing bracket
+                            opcode.push(characters.next().unwrap());
+                            tokens.push(Token::Component(opcode));
+                            break;
+                        } else {
+                            // Push parameter characters
+                            opcode.push(characters.next().ok_or("Expected closing bracket for component")?);
+                        }
+                    }
+                } else if opcode == "true" || opcode == "false" {
+                    tokens.push(Token::Boolean(opcode));
+                } else {
+                    tokens.push(Token::Opcode(opcode));
+                }
+            },
+            '0'..='9' => {
+                let mut decimal_point_found = false;
+                let mut number = String::new();
+                while let Some(&number_character) = characters.peek() {
+                    if number_character.is_numeric() {
+                        number.push(number_character);
+                        characters.next();
+                    } else if number_character == '.' {
+                        if decimal_point_found {
+                            return Err("Cannot have two decimal points in number")
+                        } else {
+                            number.push(number_character);
+                            characters.next();
+                            decimal_point_found = true;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                tokens.push(Token::Number(number));
+            },
+            _ => return Err("Unexpected character in conditions")
+        }
+    }
+    return Ok(tokens)
+}
+
 fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
     // Uses the Shunting Yard Algorithm to turn player written infix code into executeable postfix (RPN) code
-    let mut holding_stack: Vec<&str> = vec![];
-    let mut output: Vec<&str> = vec![];
-    for condition in conditions.split_whitespace() {
-        match condition {
-            "and" | "or" | "xor" | "+" | "-" | "x" | "*" | "/" | "^" | "=" | "==" | ">" | "<" | "not" => {
+    let mut holding_stack: Vec<String> = vec![];
+    let mut output: Vec<String> = vec![];
+
+    for token in tokenise(conditions)? {
+        match token {
+            Token::Opcode(opcode) => {
                 loop {
-                    if let Some(&operator) = holding_stack.last() {
-                        if get_precedence(operator) < get_precedence(condition) {
-                            holding_stack.push(condition);
+                    if let Some(operator) = holding_stack.last() {
+                        if get_precedence(operator) < get_precedence(&opcode) {
+                            holding_stack.push(opcode);
                             break;
-                        } else if get_precedence(operator) > get_precedence(condition) {
+                        } else if get_precedence(&operator) > get_precedence(&opcode) {
                             output.push(holding_stack.pop().expect("Shouldn't be possible to reach"));
                         } else { // Must be equal in this case
-                            if get_associative_direction(operator) == Direction::Left {
+                            if get_associative_direction(&operator) == Direction::Left {
                                 output.push(holding_stack.pop().expect("Shouldn't be possible to reach"));
                             } else {
-                                output.push(operator);
+                                output.push(opcode.clone());
                             }
                         }
                     } else {
-                        holding_stack.push(condition);
+                        holding_stack.push(opcode);
                         break;
                     }
                 }
             },
-            "(" => {
-                holding_stack.push(condition)
+            Token::LeftBracket => {
+                holding_stack.push("(".to_string())
             },
-            ")" => {
+            Token::RightBracket => {
                 let mut operator = holding_stack.pop().ok_or("Expected opening bracket")?;
                 while operator != "(" {
                     output.push(operator);
                     operator = holding_stack.pop().ok_or("Expected opening bracket")?;
                 }
             },
-            "true" | "false" => {
-                output.push(condition);
+            Token::Boolean(boolean) => {
+                output.push(boolean);
             },
-            possible_num => {
-                if let Ok(_) = possible_num.parse::<f64>() {
-                    output.push(possible_num);
+            Token::Number(num) => {
+                if let Ok(_) = num.parse::<f64>() {
+                    output.push(num);
                 } else {
                     return Err("Invalid condition")
                 }
+            }
+            Token::Component(component) => {
+                output.push(component)
             }
         }
     }
@@ -136,7 +230,7 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
     }
     let mut bit_conditions: Vec<u64> = vec![];
     for condition in output {
-        match condition {
+        match condition.as_str() {
             "and" => bit_conditions.push(200),
             "or" => bit_conditions.push(201),
             "not" => bit_conditions.push(202),
@@ -144,19 +238,23 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
             "==" | "=" => bit_conditions.push(300),
             ">" => bit_conditions.push(301),
             "<" => bit_conditions.push(302),
-            "x" | "*" => bit_conditions.push(600),
+            "*" => bit_conditions.push(600),
             "/" => bit_conditions.push(601),
             "+" => bit_conditions.push(602),
             "-" => bit_conditions.push(603),
             "^" => bit_conditions.push(604),
             "true" => bit_conditions.push(100),
             "false" => bit_conditions.push(101),
-            possible_num => {
-                if let Ok(num) = possible_num.parse::<f64>() {
-                    bit_conditions.push(102); // Indicates number literal
-                    bit_conditions.push(num.to_bits());
+            number if number.parse::<f64>().is_ok() => {
+                bit_conditions.push(102); // Indicates number literal
+                bit_conditions.push(number.parse::<f64>().unwrap().to_bits());
+            }
+            possible_component => {
+                // Attempt to see if is a component
+                if possible_component.ends_with(')') && !possible_component.starts_with('(') && possible_component.contains('(') {
+                    bit_conditions.extend(parse_component(possible_component)?);
                 } else {
-                    return Err("Couldn't translate condition into bytecode")
+                    return Err("Invalid condition")
                 }
             }
         }
@@ -324,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn basic_and_logic_parse() {
+    fn basic_boolean_logic_parse() {
         assert_eq!(parse_logic("true and false or true"), Ok(vec![100, 101, 200, 100, 201]));
     }
 
