@@ -98,7 +98,7 @@ enum ReturnType {
 static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
 
 lazy_static! {
-    // Component_bytecode -> (function, parameter types represented by u64)
+    // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
     // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
     static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
