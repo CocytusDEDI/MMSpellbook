@@ -60,7 +60,7 @@ fn get_precedence(operator: &str) -> u64 {
         "and" | "or" | "xor" => 1,
         ">" | "<" | "=" | "==" => 2,
         "+" | "-" => 3,
-        "x" | "*" | "/" => 4,
+        "*" | "/" => 4,
         "^" => 5,
         "not" => 6,
         _ => panic!("Not valid operator")
@@ -75,7 +75,7 @@ enum Direction {
 
 fn get_associative_direction(operator: &str) -> Direction {
     match operator {
-        "and" | "or" | "xor" | "+" | "-" | "x" | "*" | "/" | "^" | "=" | "==" | ">" | "<" => Direction::Left,
+        "and" | "or" | "xor" | "+" | "-" | "*" | "/" | "^" | "=" | "==" | ">" | "<" => Direction::Left,
         "not" => Direction::Right,
         _ => panic!("Not valid operator")
     }
