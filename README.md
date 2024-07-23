@@ -2,16 +2,10 @@
 MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows for the creation of custom spells. Once complete, it should provide a way for players to write their own custom spells using a simple language in game and then be executed. The spell has an amount of energy and that energy is used as the spell executes. Different instructions in the spell have different efficiencies which changes how much energy is used per instruction in the spell. The spell executes until it runs out of energy.
 
 ## How to use
-- Git clone the repository using `git clone https://github.com/CocytusDEDI/MMSpellbook.git` in the terminal
+- Download the repository. You can the command `git clone https://github.com/CocytusDEDI/MMSpellbook.git` in the terminal if you have git installed
 - Put `MMSpellbook.gdextension` into your godot project and change the paths to where the compiled library would be
 - Compile the rust code using `cargo build` while in the repository folder (if you don't have rust installed, install it from the rust website)
-- Write GDScript code to interact with spell code
-    - Create a new spell using `Spell.new()`
-    - Create a cast count dictionary for each component with the component name as the key and the value being the number of casts. This effects the efficiency of the components being cast. The number of casts should be greater than zero, even if it has never been cast before. You should pass the dictionary to the `.set_cast_counts()` method of your spell
-    - Give the spell energy with `.set_energy()`
-    - Create instructions for the spell (you can follow the documentation for the formatting) and then give those instructions to the method `.get_bytecode_instructions()` which will return the executable spell code in byte code format. This byte code can then be given to the method `.set_instructions()` to give the spell the instructions
-    - Make the spell a child of a none moving object like the root node (not the player). You can do this with `get_tree().root.add_child()`. Give the spell the initial position of the player. You can find the initial position of the player with the `.global_position` propriety of the player and then give that position to the spell use the method `.set_position()` on your spell
-- Run the game
+- Use the code in `player.gd` example in the examples folder. This code should be used alongside your already existing player code
 
 ## Missing features / Issues
 - No error handling between GDScript and MMSpellbook
