@@ -1,5 +1,5 @@
 # MMSpellbook
-MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows for the creation of custom spells. Once complete, it should provide a way for players to write their own custom spells using a simple language in game and then be executed. The spell has an amount of energy and that energy is used as the spell executes. Different instructions in the spell have different efficencies which changes how much energy is used per instruction in the spell. The spell executes until it runs out of energy.
+MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows for the creation of custom spells. Once complete, it should provide a way for players to write their own custom spells using a simple language in game and then be executed. The spell has an amount of energy and that energy is used as the spell executes. Different instructions in the spell have different efficiencies which changes how much energy is used per instruction in the spell. The spell executes until it runs out of energy.
 
 ## How to use
 - Git clone the repository using `git clone https://github.com/CocytusDEDI/MMSpellbook.git` in the terminal
