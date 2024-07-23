@@ -6,14 +6,18 @@ use godot::classes::SphereShape3D;
 use godot::classes::CsgSphere3D;
 use godot::classes::Shape3D;
 use lazy_static::lazy_static;
-use serde_json::Value;
+use serde_json::{Value, json};
 use spelltranslator::get_component_num;
 use spelltranslator::parse_spell;
 use std::collections::HashMap;
 
+mod spelltranslator;
+mod component_functions;
+
 // When a spell has energy below this level it is discarded as being insignificant
 const ENERGY_CONSIDERATION_LEVEL: f64 = 0.001;
 
+// Used to control how fast efficiency increases with each cast
 const EFFICIENCY_INCREASE_RATE: f64 = 10.0;
 
 struct MyExtension;
@@ -21,8 +25,23 @@ struct MyExtension;
 #[gdextension]
 unsafe impl ExtensionLibrary for MyExtension {}
 
-mod spelltranslator;
-mod component_functions;
+enum ReturnType {
+    Float,
+    Boolean,
+    None
+}
+
+static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
+
+lazy_static! {
+    // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
+    // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
+    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
+        let mut component_map = HashMap::new();
+        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
+        return component_map
+    };
+}
 
 #[derive(GodotClass)]
 #[class(base=Area3D)]
@@ -33,7 +52,7 @@ struct Spell {
     velocity: Vector3,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<u64>,
-    component_cast_counts: HashMap<u64, f64>
+    component_efficiency_levels: HashMap<u64, f64>
 }
 
 
@@ -48,7 +67,7 @@ impl IArea3D for Spell {
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: vec![],
             process_instructions: vec![],
-            component_cast_counts: HashMap::new()
+            component_efficiency_levels: HashMap::new()
         }
     }
 
@@ -87,24 +106,6 @@ impl IArea3D for Spell {
             self.base_mut().queue_free();
         }
     }
-}
-
-enum ReturnType {
-    Float,
-    Boolean,
-    None
-}
-
-static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
-
-lazy_static! {
-    // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
-    // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
-    static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
-        let mut component_map = HashMap::new();
-        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
-        return component_map
-    };
 }
 
 
@@ -249,24 +250,25 @@ impl Spell {
     fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<Vec<u64>>, ()> {
         // Getting component cast count
         if let Some((function, _, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-            let mut component_cast_count = self.component_cast_counts.entry(*component_code).or_insert(1.0).clone();
+            let mut component_efficiency_level = self.component_efficiency_levels.entry(*component_code).or_insert(1.0).clone();
 
             // Getting energy required
             if let Some(base_energy_bits) = function(self, &parameters, false) {
                 let base_energy = f64::from_bits(*base_energy_bits.first().expect("Expected energy useage return"));
-                // Getting efficiency from component_cast_count
-                let efficiency = component_cast_count / (component_cast_count + EFFICIENCY_INCREASE_RATE);
+                // Getting efficiency from component_efficiency_level
+                let efficiency = component_efficiency_level / (component_efficiency_level + EFFICIENCY_INCREASE_RATE);
 
                 let energy_needed = base_energy / efficiency;
                 if self.energy >= energy_needed {
                     self.energy -= energy_needed;
 
                     // Updating component cast count
-                    component_cast_count += 1.0;
-                    self.component_cast_counts.insert(*component_code, component_cast_count);
+                    let efficiency_increase = base_energy;
+                    component_efficiency_level += efficiency_increase;
+                    self.component_efficiency_levels.insert(*component_code, component_efficiency_level);
 
                     // Emit signal to say component has been cast
-                    self.emit_component_cast(*component_code, base_energy);
+                    self.emit_component_cast(*component_code, efficiency_increase);
 
                     if let Some(value) = function(self, &parameters, true) {
                         return Ok(Some(value))
@@ -283,6 +285,10 @@ impl Spell {
             panic!("Component does not exist")
         }
     }
+
+    fn emit_component_cast(&mut self, component_code: u64, efficiency_increase: f64) {
+        self.base_mut().emit_signal("component_cast".into(), &[Variant::from(component_code), Variant::from(efficiency_increase)]);
+    }
 }
 
 fn get_number_of_component_parameters(component_code: &u64) -> u64 {
@@ -296,22 +302,38 @@ fn get_number_of_component_parameters(component_code: &u64) -> u64 {
 #[godot_api]
 impl Spell {
     #[func]
-    fn set_cast_counts(&mut self, cast_counts_json: GString) {
-        let json_string = cast_counts_json.to_string();
+    fn set_efficiency_levels(&mut self, efficiency_levels_bytecode_json: GString) {
+        let json_string = efficiency_levels_bytecode_json.to_string();
 
         match serde_json::from_str(&json_string) {
-            Ok(Value::Object(cast_counts_object)) => {
+            Ok(Value::Object(efficiency_levels_object)) => {
                 let mut temp_hashmap: HashMap<u64, f64> = HashMap::new();
-                for (key, value) in cast_counts_object {
-                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<String>(), value.as_f64()) {
-                        if let Some(component_num) = get_component_num(&parsed_key) {
-                            temp_hashmap.insert(component_num, parsed_value);
-                        } else {
-                            panic!("Component doesn't exist");
-                        }
+                for (key, value) in efficiency_levels_object {
+                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u64>(), value.as_f64()) {
+                        temp_hashmap.insert(parsed_key, parsed_value);
                     }
                 }
-                self.component_cast_counts = temp_hashmap;
+                self.component_efficiency_levels = temp_hashmap;
+            },
+            Ok(_) => panic!("Invalid Json: Must be object"),
+            Err(_) => panic!("Invalid Json: Incorrect format")
+        }
+    }
+
+    #[func]
+    fn get_bytecode_efficiency_levels(efficiency_levels_json: GString) -> GString {
+        let json_string = efficiency_levels_json.to_string();
+
+        match serde_json::from_str(&json_string) {
+            Ok(Value::Object(efficiency_levels_object)) => {
+                let mut return_hashmap: HashMap<u64, f64> = HashMap::new();
+                for (key, value) in efficiency_levels_object {
+                    if let (Some(parsed_key), Some(parsed_value)) = (get_component_num(&key), value.as_f64()) {
+                        return_hashmap.insert(parsed_key, parsed_value);
+                    }
+                }
+                let json_object: Value = json!(return_hashmap);
+                GString::from(json_object.to_string())
             },
             Ok(_) => panic!("Invalid Json: Must be object"),
             Err(_) => panic!("Invalid Json: Incorrect format")
@@ -377,17 +399,12 @@ impl Spell {
 
     #[func]
     fn connect_player(&mut self, &player: Gd<Node>) {
-        let update_function = player.callable("update_component_call_count");
+        let update_function = player.callable("update_component_efficiency");
         self.base_mut().connect("component_cast".into(), update_function);
     }
 
-    #[func]
-    fn emit_component_cast(&mut self, component_code: u64, base_energy: f64) {
-        self.base_mut().emit_signal("component_cast".into(), &[Variant::from(component_code), Variant::from(base_energy)]);
-    }
-
     #[signal]
-    fn component_cast(component_code: u64, base_energy: f64);
+    fn component_cast(component_code: u64, efficiency_increase: f64);
 }
 
 fn custom_bool_and(first: u64, second: u64) -> u64 {
