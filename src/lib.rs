@@ -204,7 +204,7 @@ impl Spell {
                             603 => { // subtract
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
                                 let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                rpn_stack.push(f64::to_bits(argumunt_one * argument_two));
+                                rpn_stack.push(f64::to_bits(argumunt_one - argument_two));
                             }
                             604 => { // power
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));

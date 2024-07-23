@@ -7,8 +7,26 @@ const FUNCTION_NAME_SIZE: usize = 30;
 const ON_READY_NAME: &'static str = "when_created:";
 const PROCESS_NAME: &'static str = "repeat:";
 
+fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
+    let mut padded_name = [None; FUNCTION_NAME_SIZE];
+    for (index, character) in component_name.chars().take(FUNCTION_NAME_SIZE).enumerate() {
+        padded_name[index] = Some(character);
+    }
+    padded_name
+}
 
-// ToDo: Test rpn is valid: may require some sort of return type system for components
+lazy_static! {
+    static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u64> = {
+        let mut component_map = HashMap::new();
+        component_map.insert(pad_component_name("give_velocity"), 0);
+        component_map
+    };
+}
+
+pub fn get_component_num(component_name: &str) -> Option<u64> {
+    COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name)).cloned()
+}
+
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
     let mut in_section = false;
@@ -88,13 +106,16 @@ enum Token {
     Number(String),
     Boolean(String),
     Component(String),
-    LeftBracket,
-    RightBracket
+    OpenBracket,
+    CloseBracket
 }
 
 fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
     let mut tokens: Vec<Token> = Vec::new();
     let mut characters = conditions.chars().peekable();
+    let mut last_token_was_value = false;
+    let mut close_bracket = false;
+    let mut close_extra_bracket: usize = 0;
 
     while let Some(&character) = characters.peek() {
         match character {
@@ -102,20 +123,82 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                 characters.next();
             },
             '(' => {
-                tokens.push(Token::LeftBracket);
+                tokens.push(Token::OpenBracket);
                 characters.next();
             },
             ')' => {
-                tokens.push(Token::RightBracket);
+                tokens.push(Token::CloseBracket);
+                if close_extra_bracket > 0 {
+                    tokens.push(Token::CloseBracket);
+                    close_extra_bracket -= 1;
+                }
                 characters.next();
             },
-            '+' | '-' | '*' | '/' | '^' | '=' | '>' | '<' => {
+            '+' | '*' | '/' | '^' | '=' | '>' | '<' => {
                 let mut opcode = String::new();
                 opcode.push(characters.next().unwrap());
                 if let Some('=') = characters.peek() {
                     opcode.push(characters.next().unwrap());
                 }
                 tokens.push(Token::Opcode(opcode));
+            },
+            '-' => {
+                // if next character is - or +, collapse into one character
+                // if last token was value, push plus
+                // then, push (0 -
+                // if number or component make close_bracket = true
+                    // In number, add closing bracket if true
+                    // In component, add extra closing bracket if true
+                // if open bracket, close_extra_bracket += 1
+                    // In closing bracket, add another closing bracket and decrease by one if greater than zero
+
+                // so ---(5 - (3 + 2)) = (0 - (5 + (0 - (3 + 2))))
+
+                characters.next();
+                let mut minus_count: usize = 1;
+                while let Some(&next_character) = characters.peek() {
+                    if next_character == '-' {
+                        minus_count += 1;
+                        characters.next();
+                    } else if next_character == '+' {
+                        characters.next();
+                    } else {
+                        break;
+                    }
+                }
+                if minus_count % 2 == 0 { // if overall positive, move to next character in loop
+                    continue;
+                }
+
+
+
+                if last_token_was_value {
+                    tokens.push(Token::Opcode("+".to_string()))
+                }
+
+                tokens.push(Token::OpenBracket);
+                tokens.push(Token::Number("0".to_string()));
+                tokens.push(Token::Opcode("-".to_string()));
+
+                let mut at_least_one_loop = false;
+                while let Some(&next_character) = characters.peek() {
+                    if next_character.is_alphanumeric() { // If is number or character as if character we assume it's a component
+                        close_bracket = true;
+                        at_least_one_loop = true;
+                        break;
+                    } else if next_character == '(' {
+                        close_extra_bracket += 1;
+                        at_least_one_loop = true;
+                        break;
+                    } else if next_character == ' '{
+                        characters.next();
+                    } else {
+                        return Err("Expected valid character after minus sign")
+                    }
+                }
+                if !at_least_one_loop {
+                    return Err("Expected character after minus sign")
+                }
             },
             'a'..='z' | 'A'..='Z' | '_' => {
                 let mut opcode = String::new();
@@ -127,8 +210,8 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                         break;
                     }
                 }
-                if let Some('(') = characters.peek() {
-                    opcode.push(characters.next().unwrap()); // Push LeftBracket
+                if let Some('(') = characters.peek() { // Is component
+                    opcode.push(characters.next().unwrap()); // Push OpenBracket
                     loop {
                         if let Some(')') = characters.peek() {
                             // Push closing bracket
@@ -139,6 +222,11 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                             // Push parameter characters
                             opcode.push(characters.next().ok_or("Expected closing bracket for component")?);
                         }
+                    }
+                    last_token_was_value = true;
+                    if close_bracket {
+                        tokens.push(Token::CloseBracket);
+                        close_bracket = false;
                     }
                 } else if opcode == "true" || opcode == "false" {
                     tokens.push(Token::Boolean(opcode));
@@ -166,6 +254,11 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                     }
                 }
                 tokens.push(Token::Number(number));
+                last_token_was_value = true;
+                if close_bracket {
+                    tokens.push(Token::CloseBracket);
+                    close_bracket = false;
+                }
             },
             _ => return Err("Unexpected character in conditions")
         }
@@ -295,10 +388,10 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
                 }
                 holding_stack.push(opcode);
             },
-            Token::LeftBracket => {
+            Token::OpenBracket => {
                 holding_stack.push("(".to_string())
             },
-            Token::RightBracket => {
+            Token::CloseBracket => {
                 let mut operator = holding_stack.pop().ok_or("Expected opening bracket")?;
                 while operator != "(" {
                     output.push(operator);
@@ -359,7 +452,6 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
         Ok(_) => Ok(bit_conditions),
         Err(error) => Err(error)
     }
-
 }
 
 fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
@@ -376,26 +468,6 @@ fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
     return Ok(component_vec)
 }
 
-fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
-    let mut padded_name = [None; FUNCTION_NAME_SIZE];
-    for (index, character) in component_name.chars().take(FUNCTION_NAME_SIZE).enumerate() {
-        padded_name[index] = Some(character);
-    }
-    padded_name
-}
-
-lazy_static! {
-    static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u64> = {
-        let mut component_map = HashMap::new();
-        component_map.insert(pad_component_name("give_velocity"), 0);
-        component_map
-    };
-}
-
-pub fn get_component_num(component_name: &str) -> Option<u64> {
-    COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name)).cloned()
-}
-
 fn parse_component_string(component_call: &str) -> Result<(String, Vec<Parameter>), &'static str> {
     if component_call.chars().last() != Some(')') {
         return Err("Invalid component: Must end with close bracket");
@@ -408,11 +480,6 @@ fn parse_component_string(component_call: &str) -> Result<(String, Vec<Parameter
     // Looping through component_call to get component_name
     for character in component_call.chars() {
         if character == '(' {
-            if character == ' '{
-                continue;
-            } else if character == ',' {
-                return Err("Invalid component: Must begin with letters")
-            }
             found_opening_bracket = true;
             break;
             // Checking if character is alphabetic if not an open bracket.
