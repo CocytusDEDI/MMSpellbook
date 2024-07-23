@@ -24,7 +24,7 @@ func _process(delta):
         # Sets the spells inital energy
         spell.set_energy(example_spell_energy)
         # Gives the spell instructions. Spell instructions need to be in bytecode format so they are converted first
-        var instructions = Spell.get_bytecode_instructions(example_instructions)
+        spell.set_instructions(Spell.get_bytecode_instructions(example_instructions))
         # Sets the spells position to be the same as the players
         spell.set_position(self.global_position)
         # Put the spell into the game
