@@ -110,7 +110,7 @@ impl IArea3D for Spell {
 
 
 impl Spell {
-    fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), ()> {
+    fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), ()> { // TODO: Handle result in process and ready
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {

@@ -43,7 +43,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
             instructions.push(section);
             in_section = true;
         } else {
-            if in_section {// If in section, parse code
+            if in_section { // If in section, parse code
                 if trimmed_line.ends_with(")") { // Checking to see if component
                     instructions.extend(parse_component(trimmed_line)?);
                 } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
@@ -55,7 +55,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                     instructions.push(0);
                     expected_closing_brackets -= 1;
                 } else if trimmed_line == "" {
-                    continue;
+                    continue
                 } else {
                     return Err("Not acceptable statement")
                 }
@@ -165,7 +165,7 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                     }
                 }
                 if minus_count % 2 == 0 { // if overall positive, move to next character in loop
-                    continue;
+                    continue
                 }
 
 
