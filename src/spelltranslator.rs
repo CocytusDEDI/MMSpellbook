@@ -533,8 +533,9 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
         for character in parameters_string.chars() {
             if character != ',' {
                 parameter.push(character)
+                continue;
             }
-            
+
             if parameter.is_empty() {
                 return Err("Invalid parameters: Must have value before bracket")
             }
