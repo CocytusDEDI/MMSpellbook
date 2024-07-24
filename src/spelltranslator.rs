@@ -532,8 +532,8 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
         let encoded_types: &[u64] = encoded_types;
         for character in parameters_string.chars() {
             if character != ',' {
-                parameter.push(character)
-                continue;
+                parameter.push(character);
+                continue
             }
 
             if parameter.is_empty() {
@@ -549,7 +549,7 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
             index += 1;
 
             // Clear parameter string so next one can be recorded
-            parameter.clear()
+            parameter.clear();
 
         }
 
