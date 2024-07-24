@@ -378,8 +378,13 @@ impl Spell {
     }
 
     #[func]
-    fn get_bytecode_instructions(instructions_json: GString) -> GString {
-        return GString::from(serde_json::to_string(&parse_spell(&instructions_json.to_string()).expect("Failed to turn instructions into bytecode")).expect("Failed to parse instructions into json"))
+    fn get_bytecode_instructions(instructions_json: GString) -> Dictionary {
+        // Returns a dictionary of the instructions and successful
+        let (instructions, successful, error_message) = match parse_spell(&instructions_json.to_string()) {
+            Ok(succesful_instructions) => (succesful_instructions, true, GString::new()),
+            Err(error) => (Vec::new(), false, GString::from(error))
+        };
+        return dict!{"instructions": GString::from(serde_json::to_string(&instructions).expect("Failed to parse instructions into json")), "successful": successful, "error_message": error_message}
     }
 
     #[func]
