@@ -43,27 +43,25 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
             instructions.push(section);
             in_section = true;
         } else {
-            match in_section { // Check if in section
-                true => { // If in section, parse code
-                    if trimmed_line.ends_with(")") { // Checking to see if component
-                        instructions.extend(parse_component(trimmed_line)?);
-                    } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
-                        instructions.push(400); // Indicates if statement
-                        instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
-                        instructions.push(0); // Indicates end of scope for logic
-                        expected_closing_brackets += 1;
-                    } else if expected_closing_brackets > 0 && trimmed_line == "}" {
-                        instructions.push(0);
-                        expected_closing_brackets -= 1;
-                    } else if trimmed_line == "" {
-                        continue;
-                    } else {
-                        return Err("Not acceptable statement")
-                    }
-                },
-                false => { // if not in section, check if line is a valid section
-                    return Err("Must begin with section statement");
+            if in_section {// If in section, parse code
+                if trimmed_line.ends_with(")") { // Checking to see if component
+                    instructions.extend(parse_component(trimmed_line)?);
+                } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
+                    instructions.push(400); // Indicates if statement
+                    instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
+                    instructions.push(0); // Indicates end of scope for logic
+                    expected_closing_brackets += 1;
+                } else if expected_closing_brackets > 0 && trimmed_line == "}" {
+                    instructions.push(0);
+                    expected_closing_brackets -= 1;
+                } else if trimmed_line == "" {
+                    continue;
+                } else {
+                    return Err("Not acceptable statement")
                 }
+            } else { // if not in section, check if line is a valid section
+                // TODO: add check
+                return Err("Must begin with section statement");
             }
         }
     }
@@ -533,25 +531,25 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
     if let Some((_, encoded_types, _)) = COMPONENT_TO_FUNCTION_MAP.get(&get_component_num(component_name).expect("Expected component")) {
         let encoded_types: &[u64] = encoded_types;
         for character in parameters_string.chars() {
-            if character == ',' {
-                if parameter.is_empty() {
-                    return Err("Invalid parameters: Must have value before bracket")
-                }
-
-                if index >= encoded_types.len() {
-                    return Err("Invalid parameters: More parameters than expected types");
-                }
-
-                // Adding parameter to parameters vector
-                parameters.push(parse_parameter(&parameter, encoded_types[index])?);
-                index += 1;
-
-                // Clear parameter string so next one can be recorded
-                parameter.clear()
-
-            } else {
+            if character != ',' {
                 parameter.push(character)
             }
+            
+            if parameter.is_empty() {
+                return Err("Invalid parameters: Must have value before bracket")
+            }
+
+            if index >= encoded_types.len() {
+                return Err("Invalid parameters: More parameters than expected types");
+            }
+
+            // Adding parameter to parameters vector
+            parameters.push(parse_parameter(&parameter, encoded_types[index])?);
+            index += 1;
+
+            // Clear parameter string so next one can be recorded
+            parameter.clear()
+
         }
 
         // Adding last parameter
