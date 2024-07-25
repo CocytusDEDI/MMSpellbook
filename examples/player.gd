@@ -5,6 +5,7 @@ var number_of_spells = 0
 # Dictionary used to record a players efficiency with each component of a spell, should be stored
 var efficiencies_bytecode = {}
 
+# This is an example of the instructions the player enters when creating their spell
 var example_instructions = "
 when_created:
 if 2 = 4 - 2 {
