@@ -7,7 +7,6 @@ use godot::classes::CsgSphere3D;
 use godot::classes::Shape3D;
 use godot::classes::StandardMaterial3D;
 use godot::classes::base_material_3d::Transparency;
-use godot::classes::base_material_3d::EmissionOperator;
 use godot::classes::base_material_3d::Feature;
 use lazy_static::lazy_static;
 use serde_json::{Value, json};
@@ -19,16 +18,18 @@ mod spelltranslator;
 mod component_functions;
 
 // When a spell has energy below this level it is discarded as being insignificant
-const ENERGY_CONSIDERATION_LEVEL: f64 = 0.001;
+const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
 
 // Used to control how fast efficiency increases with each cast
 const EFFICIENCY_INCREASE_RATE: f64 = 10.0;
 
 // Used to control how fast energy is lost passively over time. Is a fraction of total spell energy.
-const ENERGY_LOSE_RATE: f64 = 0.005;
+const ENERGY_LOSE_RATE: f64 = 0.05;
 
-// Used to determin how Transparent the default spell is. 0 = fully transparent, 255 = not transparent
-const SPELL_TRANSPARENCY: f32 = 0.7;
+// Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
+const SPELL_TRANSPARENCY: f32 = 0.9;
+
+const ENERGY_TO_RADIUS_CONSTANT: f64 = 100.0;
 
 // Default spell color
 struct DefaultColor {
@@ -38,8 +39,6 @@ struct DefaultColor {
 }
 
 const DEFAULT_COLOR: DefaultColor = DefaultColor { r: 1.0, g: 1.0, b: 1.0 };
-
-const SPELL_RADIUS: f32 = 0.2;
 
 struct MyExtension;
 
@@ -97,13 +96,14 @@ impl IArea3D for Spell {
         // Creating visual representation of spell in godot
         let mut collision_shape = CollisionShape3D::new_alloc();
         let mut shape = SphereShape3D::new_gd();
-        shape.set_radius(SPELL_RADIUS);
+        let radius = Spell::energy_to_radius(self.energy);
+        shape.set_radius(radius);
         collision_shape.set_shape(shape.upcast::<Shape3D>());
         self.base_mut().add_child(collision_shape.upcast::<Node>());
         let mut csg_sphere = CsgSphere3D::new_alloc();
         csg_sphere.set_radial_segments(20);
         csg_sphere.set_rings(20);
-        csg_sphere.set_radius(SPELL_RADIUS);
+        csg_sphere.set_radius(radius);
         let mut csg_material = StandardMaterial3D::new_gd();
 
         // Player defined material properties
@@ -138,6 +138,18 @@ impl IArea3D for Spell {
         // Handle energy lose
         self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
 
+        // Radius changing of collision shape
+        let radius = Spell::energy_to_radius(self.energy);
+
+        let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("@CollisionShape3D@3");
+        let shape = collsion_shape.get_shape().unwrap();
+        let mut sphere = shape.cast::<SphereShape3D>();
+        sphere.set_radius(radius);
+
+        // Changing radius of csg sphere
+        let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("@CSGSphere3D@4");
+        csg_sphere.set_radius(radius);
+
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.base_mut().queue_free();
@@ -154,7 +166,7 @@ impl Spell {
                 0 => {}, // 0 = end of scope, if reached naturely, move on
                 103 => { // 103 = component
                     let component_code = instructions_iter.next().expect("Expected component");
-                    let number_of_component_parameters = get_number_of_component_parameters(component_code);
+                    let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
                     let mut parameters: Vec<u64> = vec![];
                     for _ in 0..number_of_component_parameters {
                         parameters.push(*instructions_iter.next().expect("Expected parameter"));
@@ -170,7 +182,7 @@ impl Spell {
                             102 => rpn_stack.push(*instructions_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
                             103 => { // Component
                                 let component_code = instructions_iter.next().expect("Expected component");
-                                let number_of_component_parameters = get_number_of_component_parameters(component_code);
+                                let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
                                 let mut parameters: Vec<u64> = vec![];
                                 for _ in 0..number_of_component_parameters {
                                     parameters.push(*instructions_iter.next().expect("Expected parameter"));
@@ -180,21 +192,21 @@ impl Spell {
                             200 => { // And statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(custom_bool_and(bool_one, bool_two));
+                                rpn_stack.push(boolean_logic::and(bool_one, bool_two));
                             },
                             201 => { // Or statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(custom_bool_or(bool_one, bool_two));
+                                rpn_stack.push(boolean_logic::or(bool_one, bool_two));
                             },
                             202 => { // Not statement
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(custom_bool_not(bool_one));
+                                rpn_stack.push(boolean_logic::not(bool_one));
                             },
                             203 => { // Xor statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(custom_bool_xor(bool_one, bool_two));
+                                rpn_stack.push(boolean_logic::xor(bool_one, bool_two));
                             },
                             300 => { // equals
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
@@ -261,7 +273,7 @@ impl Spell {
                                     102 => _ = instructions_iter.next(), // Ignores number literals
                                     103 => {
                                         let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
-                                        let number_of_component_parameters = get_number_of_component_parameters(component_code);
+                                        let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
                                         for _ in 0..number_of_component_parameters {
                                             _ = instructions_iter.next();
                                         }
@@ -326,13 +338,17 @@ impl Spell {
     fn emit_component_cast(&mut self, component_code: u64, efficiency_increase: f64) {
         self.base_mut().emit_signal("component_cast".into(), &[Variant::from(component_code), Variant::from(efficiency_increase)]);
     }
-}
 
-fn get_number_of_component_parameters(component_code: &u64) -> u64 {
-    if let Some((_, number_of_parameters, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-        return number_of_parameters.len() as u64
-    } else {
-        panic!("Component doesn't exist")
+    fn energy_to_radius(energy: f64) -> f32 {
+        (energy / ENERGY_TO_RADIUS_CONSTANT) as f32
+    }
+
+    fn get_number_of_component_parameters(component_code: &u64) -> u64 {
+        if let Some((_, number_of_parameters, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
+            return number_of_parameters.len() as u64
+        } else {
+            panic!("Component doesn't exist")
+        }
     }
 }
 
@@ -464,44 +480,46 @@ impl Spell {
     fn component_cast(component_code: u64, efficiency_increase: f64);
 }
 
-fn custom_bool_and(first: u64, second: u64) -> u64 {
-    // 100 = true, 101 = false
-    match (first, second) {
-        (100, 100) => 100,
-        (100, 101) => 101,
-        (101, 100) => 101,
-        (101, 101) => 101,
-        _ => panic!("Parameters must be 100 or 101")
+mod boolean_logic {
+    pub fn and(first: u64, second: u64) -> u64 {
+        // 100 = true, 101 = false
+        match (first, second) {
+            (100, 100) => 100,
+            (100, 101) => 101,
+            (101, 100) => 101,
+            (101, 101) => 101,
+            _ => panic!("Parameters must be 100 or 101")
+        }
     }
-}
 
-fn custom_bool_or(first: u64, second: u64) -> u64 {
-    // 100 = true, 101 = false
-    match (first, second) {
-        (100, 100) => 100,
-        (100, 101) => 100,
-        (101, 100) => 100,
-        (101, 101) => 101,
-        _ => panic!("Parameters must be 100 or 101")
+    pub fn or(first: u64, second: u64) -> u64 {
+        // 100 = true, 101 = false
+        match (first, second) {
+            (100, 100) => 100,
+            (100, 101) => 100,
+            (101, 100) => 100,
+            (101, 101) => 101,
+            _ => panic!("Parameters must be 100 or 101")
+        }
     }
-}
 
-fn custom_bool_xor(first: u64, second: u64) -> u64 {
-    // 100 = true, 101 = false
-    match (first, second) {
-        (100, 100) => 101,
-        (100, 101) => 100,
-        (101, 100) => 100,
-        (101, 101) => 101,
-        _ => panic!("Parameters must be 100 or 101")
+    pub fn xor(first: u64, second: u64) -> u64 {
+        // 100 = true, 101 = false
+        match (first, second) {
+            (100, 100) => 101,
+            (100, 101) => 100,
+            (101, 100) => 100,
+            (101, 101) => 101,
+            _ => panic!("Parameters must be 100 or 101")
+        }
     }
-}
 
-fn custom_bool_not(first: u64) -> u64 {
-    // 100 = true, 101 = false
-    match first {
-        100 => 101,
-        101 => 100,
-        _ => panic!("Parameters must be 100 or 101")
+    pub fn not(first: u64) -> u64 {
+        // 100 = true, 101 = false
+        match first {
+            100 => 101,
+            101 => 100,
+            _ => panic!("Parameters must be 100 or 101")
+        }
     }
 }

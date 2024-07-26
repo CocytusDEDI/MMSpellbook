@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, get_number_of_component_parameters, custom_bool_and, custom_bool_not, custom_bool_or, custom_bool_xor};
+use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic};
 
 const FUNCTION_NAME_SIZE: usize = 30;
 
@@ -273,7 +273,7 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
             102 => rpn_stack.push(*logic_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
             103 => { // Component
                 let component_code = logic_iter.next().expect("Expected component");
-                let number_of_component_parameters = get_number_of_component_parameters(component_code);
+                let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
                 let mut parameters: Vec<u64> = vec![];
                 for _ in 0..number_of_component_parameters {
                     parameters.push(*logic_iter.next().expect("Expected parameter"));
@@ -292,21 +292,21 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
             200 => { // And statement
                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                rpn_stack.push(custom_bool_and(bool_one, bool_two));
+                rpn_stack.push(boolean_logic::and(bool_one, bool_two));
             },
             201 => { // Or statement
                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                rpn_stack.push(custom_bool_or(bool_one, bool_two));
+                rpn_stack.push(boolean_logic::or(bool_one, bool_two));
             },
             202 => { // Not statement
                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                rpn_stack.push(custom_bool_not(bool_one));
+                rpn_stack.push(boolean_logic::not(bool_one));
             },
             203 => { // Xor statement
                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                rpn_stack.push(custom_bool_xor(bool_one, bool_two));
+                rpn_stack.push(boolean_logic::xor(bool_one, bool_two));
             },
             300 => { // equals
                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
