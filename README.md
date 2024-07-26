@@ -7,8 +7,9 @@ MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows 
 - Compile the rust code using `cargo build` while in the repository folder (if you don't have rust installed, install it from the rust website)
 - Use the code in `player.gd` example in the examples folder. This code should be used alongside your already existing player code
 
-## Missing features / Issues
-- No visual customisation. Currently using a ball as a placeholder
+## Missing features / Issues / Planning to change
+- Only one component exists
+- Custom materials and meshes can't be loaded for spells
 
 ## Debugging
 Start Godot via the terminal so you can see detailed error messages.

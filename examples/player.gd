@@ -30,6 +30,10 @@ func _process(delta):
         # Sets the spells inital energy
         spell.set_energy(example_spell_energy)
 
+        # Optional line: if not given spell defaults to white
+        # Gives the spell its color, in the order red, green, blue and each number is a range from 0 to 1
+        spell.set_color(Color(0.24, 0, 0.59))
+
         # This line is optional. If not included, all components will be treated as at efficiency level 1
         spell.set_efficiency_levels(JSON.stringify(efficiencies_bytecode))
 
