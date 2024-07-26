@@ -2,7 +2,7 @@ use godot::prelude::*;
 
 use crate::Spell;
 
-const APPLY_TO_SPELL_COEFFICIENT: f64 = 100.0;
+const APPLY_TO_SPELL_COEFFICIENT: f64 = 70.0;
 
 pub fn give_velocity(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     let parameter_one: f32 = f64::from_bits(parameters[0]) as f32;

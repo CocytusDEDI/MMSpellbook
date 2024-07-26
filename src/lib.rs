@@ -393,6 +393,7 @@ impl Spell {
         }
     }
 
+    /// Takes instructions in the format of a json list which can be obtained from the output of the method `get_bytecode_instructions`. The instructions are called once the spell is put in the scene tree
     #[func]
     fn set_instructions(&mut self, instructions_json: GString) {
         let instructions_string = instructions_json.to_string();
@@ -430,6 +431,7 @@ impl Spell {
         }
     }
 
+    /// Takes in spell instructions in string format and returns a dictionary containing `instructions` (a json list), `successful` (a boolean) and `error_message` (a string)
     #[func]
     fn get_bytecode_instructions(instructions_json: GString) -> Dictionary {
         // Returns a dictionary of the instructions and successful
@@ -450,6 +452,7 @@ impl Spell {
         self.energy
     }
 
+    /// The parameter `energy_lose_rate` is a fraction of the total energy of the spell, not a constant amount and should range between 0 and 1
     #[func]
     fn set_energy_lose_rate(&mut self, energy_lose_rate: f64) {
         self.energy_lose_rate = energy_lose_rate;
@@ -460,6 +463,7 @@ impl Spell {
         self.energy_lose_rate
     }
 
+    /// Requires Color(r, g, b) where r, g and b are floats ranging from 0 to 1
     #[func]
     fn set_color(&mut self, color: Color) {
         self.color = Color::from_rgba(color.r, color.g, color.b, SPELL_TRANSPARENCY);
@@ -470,8 +474,9 @@ impl Spell {
         Color::from_rgb(self.color.r as f32, self.color.g as f32, self.color.b as f32)
     }
 
+    /// Once `connect_player()` is called, whenever a component is cast, the provided node's `update_component_efficiency` method will be called
     #[func]
-    fn connect_player(&mut self, &player: Gd<Node>) {
+    fn connect_player(&mut self, player: Gd<Node>) {
         let update_function = player.callable("update_component_efficiency");
         self.base_mut().connect("component_cast".into(), update_function);
     }

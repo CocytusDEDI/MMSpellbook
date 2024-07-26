@@ -582,12 +582,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_parse_spell() {
+    fn parse_emtpy_spell() {
         assert_eq!(parse_spell(""), Ok(vec![]));
     }
 
     #[test]
-    fn basic_boolean_logic_parse() {
+    fn parse_basic_booleans() {
         assert_eq!(parse_logic("true and false or true"), Ok(vec![100, 101, 200, 100, 201]));
     }
 
@@ -597,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_if_statement() {
+    fn parse_if_statement_spell() {
         assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 0, 103, 0, f64::to_bits(1.0), 0, 0, 0]))
     }
 }
