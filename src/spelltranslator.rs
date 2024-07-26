@@ -59,8 +59,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                 } else {
                     return Err("Not acceptable statement")
                 }
-            } else { // if not in section, check if line is a valid section
-                // TODO: add check
+            } else {
                 return Err("Must begin with section statement");
             }
         }

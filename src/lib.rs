@@ -5,6 +5,10 @@ use godot::classes::CollisionShape3D;
 use godot::classes::SphereShape3D;
 use godot::classes::CsgSphere3D;
 use godot::classes::Shape3D;
+use godot::classes::StandardMaterial3D;
+use godot::classes::base_material_3d::Transparency;
+use godot::classes::base_material_3d::EmissionOperator;
+use godot::classes::base_material_3d::Feature;
 use lazy_static::lazy_static;
 use serde_json::{Value, json};
 use spelltranslator::get_component_num;
@@ -19,6 +23,23 @@ const ENERGY_CONSIDERATION_LEVEL: f64 = 0.001;
 
 // Used to control how fast efficiency increases with each cast
 const EFFICIENCY_INCREASE_RATE: f64 = 10.0;
+
+// Used to control how fast energy is lost passively over time. Is a fraction of total spell energy.
+const ENERGY_LOSE_RATE: f64 = 0.005;
+
+// Used to determin how Transparent the default spell is. 0 = fully transparent, 255 = not transparent
+const SPELL_TRANSPARENCY: f32 = 0.7;
+
+// Default spell color
+struct DefaultColor {
+    r: f32,
+    g: f32,
+    b: f32
+}
+
+const DEFAULT_COLOR: DefaultColor = DefaultColor { r: 1.0, g: 1.0, b: 1.0 };
+
+const SPELL_RADIUS: f32 = 0.2;
 
 struct MyExtension;
 
@@ -48,6 +69,7 @@ lazy_static! {
 struct Spell {
     base: Base<Area3D>,
     energy: f64,
+    color: Color,
     energy_lose_rate: f64,
     velocity: Vector3,
     ready_instructions: Vec<u64>,
@@ -55,29 +77,44 @@ struct Spell {
     component_efficiency_levels: HashMap<u64, f64>
 }
 
-
 #[godot_api]
 impl IArea3D for Spell {
     fn init(base: Base<Area3D>) -> Self {
         Self {
             base,
             energy: 0.0,
-            energy_lose_rate: 0.005,
+            color: Color::from_rgba(DEFAULT_COLOR.r, DEFAULT_COLOR.g, DEFAULT_COLOR.b, SPELL_TRANSPARENCY),
+            energy_lose_rate: ENERGY_LOSE_RATE,
             velocity: Vector3::new(0.0, 0.0, 0.0),
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
-            ready_instructions: vec![],
-            process_instructions: vec![],
+            ready_instructions: Vec::new(),
+            process_instructions: Vec::new(),
             component_efficiency_levels: HashMap::new()
         }
     }
 
     fn ready(&mut self) {
-        // Creating visual representation of spell in godot (not required, just a place holder)
-        let mut collision_shape: Gd<CollisionShape3D> = CollisionShape3D::new_alloc();
-        let shape = SphereShape3D::new_gd();
+        // Creating visual representation of spell in godot
+        let mut collision_shape = CollisionShape3D::new_alloc();
+        let mut shape = SphereShape3D::new_gd();
+        shape.set_radius(SPELL_RADIUS);
         collision_shape.set_shape(shape.upcast::<Shape3D>());
         self.base_mut().add_child(collision_shape.upcast::<Node>());
-        self.base_mut().add_child(CsgSphere3D::new_alloc().upcast::<Node>());
+        let mut csg_sphere = CsgSphere3D::new_alloc();
+        csg_sphere.set_radial_segments(20);
+        csg_sphere.set_rings(20);
+        csg_sphere.set_radius(SPELL_RADIUS);
+        let mut csg_material = StandardMaterial3D::new_gd();
+
+        // Player defined material properties
+        csg_material.set_albedo(self.color);
+
+        // Constant material properties
+        csg_material.set_transparency(Transparency::ALPHA); // Transparency type
+        csg_material.set_feature(Feature::EMISSION, true); // Allows spell to emit light
+        csg_material.set_emission(self.color); // Chooses what light to emit
+        csg_sphere.set_material(csg_material);
+        self.base_mut().add_child(csg_sphere.upcast::<Node>());
 
         // Hanlde instructions
         self.spell_virtual_machine(&self.ready_instructions.clone());
@@ -400,6 +437,21 @@ impl Spell {
     #[func]
     fn set_energy_lose_rate(&mut self, energy_lose_rate: f64) {
         self.energy_lose_rate = energy_lose_rate;
+    }
+
+    #[func]
+    fn get_energy_lose_rate(&self) -> f64 {
+        self.energy_lose_rate
+    }
+
+    #[func]
+    fn set_color(&mut self, color: Color) {
+        self.color = Color::from_rgba(color.r, color.g, color.b, SPELL_TRANSPARENCY);
+    }
+
+    #[func]
+    fn get_color(&self) -> Color {
+        Color::from_rgb(self.color.r as f32, self.color.g as f32, self.color.b as f32)
     }
 
     #[func]
