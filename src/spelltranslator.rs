@@ -18,7 +18,16 @@ fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE
 lazy_static! {
     static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u64> = {
         let mut component_map = HashMap::new();
+
+        // Utility:
         component_map.insert(pad_component_name("give_velocity"), 0);
+
+        // Logic:
+        component_map.insert(pad_component_name("moving"), 1000);
+
+        // Power:
+        // None
+
         component_map
     };
 }

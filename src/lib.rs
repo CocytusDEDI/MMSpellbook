@@ -21,7 +21,7 @@ mod component_functions;
 const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
 
 // Used to control how fast efficiency increases with each cast
-const EFFICIENCY_INCREASE_RATE: f64 = 10.0;
+const EFFICIENCY_INCREASE_RATE: f64 = 15.0;
 
 // Used to control how fast energy is lost passively over time. Is a fraction of total spell energy.
 const ENERGY_LOSE_RATE: f64 = 0.05;
@@ -52,13 +52,22 @@ enum ReturnType {
 }
 
 static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
+static COMPONENT_1_ARGS: &[u64] = &[1];
 
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
     // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
     static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
+        // Utility:
         component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
+
+        // Logic:
+        component_map.insert(1000, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
+
+        // Power:
+        // None
+
         return component_map
     };
 }
@@ -116,12 +125,16 @@ impl IArea3D for Spell {
         csg_sphere.set_material(csg_material);
         self.base_mut().add_child(csg_sphere.upcast::<Node>());
 
-        // Hanlde instructions
-        self.spell_virtual_machine(&self.ready_instructions.clone());
+
+        // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
+        match self.spell_virtual_machine(&self.ready_instructions.clone()) {
+            Ok(()) => {},
+            Err(()) => self.free_spell()
+        }
 
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
-            self.base_mut().queue_free();
+            self.free_spell();
         }
     }
 
@@ -132,8 +145,11 @@ impl IArea3D for Spell {
         let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
         self.base_mut().set_position(new_position);
 
-        // Hanlde instructions
-        self.spell_virtual_machine(&self.process_instructions.clone());
+        // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
+        match self.spell_virtual_machine(&self.process_instructions.clone()) {
+            Ok(()) => {},
+            Err(()) => self.free_spell()
+        }
 
         // Handle energy lose
         self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
@@ -152,7 +168,7 @@ impl IArea3D for Spell {
 
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
-            self.base_mut().queue_free();
+            self.free_spell();
         }
     }
 }
@@ -293,6 +309,10 @@ impl Spell {
             }
         }
         return Ok(())
+    }
+
+    fn free_spell(&mut self) {
+        self.base_mut().queue_free();
     }
 
 

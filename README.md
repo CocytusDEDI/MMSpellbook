@@ -8,8 +8,9 @@ MMSpellbook (Magic Modelling Spellbook) is a magic system for Godot that allows 
 - Use the code in `player.gd` example in the examples folder. This code should be used alongside your already existing player code
 
 ## Missing features / Issues / Planning to change
-- Only one component exists
+- Lacking enough components
 - Custom materials and meshes can't be loaded for spells
+- Can't specify colour per spell
 
 ## Debugging
 Start Godot via the terminal so you can see detailed error messages.
