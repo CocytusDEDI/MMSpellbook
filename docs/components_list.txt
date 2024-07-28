@@ -15,5 +15,5 @@ anchor() requires {give_velocity}
 logic:
 
 power:
-
+disintegrate()
 

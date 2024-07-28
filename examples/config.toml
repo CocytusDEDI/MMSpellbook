@@ -1,0 +1,2 @@
+[forms]
+0 = { "path" = "res://Spell/fireball.tscn", "energy_requirement" = 20 }

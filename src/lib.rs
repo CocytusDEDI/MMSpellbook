@@ -1,3 +1,5 @@
+use godot::classes::file_access;
+use godot::classes::FileAccess;
 use godot::prelude::*;
 use godot::classes::Area3D;
 use godot::classes::IArea3D;
@@ -10,12 +12,18 @@ use godot::classes::base_material_3d::Transparency;
 use godot::classes::base_material_3d::Feature;
 use lazy_static::lazy_static;
 use serde_json::{Value, json};
+use serde::Deserialize;
 use spelltranslator::get_component_num;
 use spelltranslator::parse_spell;
 use std::collections::HashMap;
+use std::fs;
+use toml;
 
 mod spelltranslator;
 mod component_functions;
+
+const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
+const SPELL_CATALOGUE_PATH: &'static str = "user://spell_catalogue.tres";
 
 // When a spell has energy below this level it is discarded as being insignificant
 const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
@@ -40,6 +48,45 @@ struct DefaultColor {
 
 const DEFAULT_COLOR: DefaultColor = DefaultColor { r: 1.0, g: 1.0, b: 1.0 };
 
+#[derive(Deserialize)]
+struct StringConfig {
+    #[serde(default)]
+    forms: HashMap<String, FormConfig>
+}
+
+#[derive(Deserialize, Clone)]
+struct FormConfig {
+    path: String,
+    energy_required: f64
+}
+
+impl StringConfig {
+    fn to_config(&self) -> Config {
+        let mut config = Config {forms: HashMap::new()};
+        for (key, value) in &self.forms {
+            config.forms.insert(key.parse().expect("Couldn't parse config.toml forms section"), value.clone());
+        }
+        return config
+    }
+}
+
+struct Config {
+    forms: HashMap<u64, FormConfig>
+}
+
+fn load_string_config() -> StringConfig {
+    let config_file = fs::read_to_string(SPELL_CONFIG_PATH).unwrap_or_default();
+    toml::de::from_str::<StringConfig>(&config_file).expect("Couldn't parse config.toml")
+}
+
+fn load_spell_catalogue() -> Dictionary {
+    let spell_catalogue_file = match FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ) {
+        Some(file) => file,
+        None => panic!("Couldn't open spell catalogue")
+    };
+    spell_catalogue_file.get_var().to()
+}
+
 struct MyExtension;
 
 #[gdextension]
@@ -53,6 +100,7 @@ enum ReturnType {
 
 static COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
 static COMPONENT_1_ARGS: &[u64] = &[1];
+static COMPONENT_2_ARGS: &[u64] = &[];
 
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
@@ -61,6 +109,8 @@ lazy_static! {
         let mut component_map = HashMap::new();
         // Utility:
         component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
+        component_map.insert(1, (component_functions::take_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
+        component_map.insert(2, (component_functions::undo_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
 
         // Logic:
         component_map.insert(1000, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
@@ -79,6 +129,8 @@ struct Spell {
     energy: f64,
     color: Color,
     energy_lose_rate: f64,
+    form_set: bool,
+    config: Config,
     velocity: Vector3,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<u64>,
@@ -93,6 +145,8 @@ impl IArea3D for Spell {
             energy: 0.0,
             color: Color::from_rgba(DEFAULT_COLOR.r, DEFAULT_COLOR.g, DEFAULT_COLOR.b, SPELL_TRANSPARENCY),
             energy_lose_rate: ENERGY_LOSE_RATE,
+            form_set: false,
+            config: load_string_config().to_config(),
             velocity: Vector3::new(0.0, 0.0, 0.0),
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: Vec::new(),
@@ -104,14 +158,17 @@ impl IArea3D for Spell {
     fn ready(&mut self) {
         // Creating visual representation of spell in godot
         let mut collision_shape = CollisionShape3D::new_alloc();
+        collision_shape.set_name("spell_collision_shape".into_godot());
         let mut shape = SphereShape3D::new_gd();
+        shape.set_name("spell_sphere_shape".into_godot());
         let radius = Spell::energy_to_radius(self.energy);
         shape.set_radius(radius);
         collision_shape.set_shape(shape.upcast::<Shape3D>());
         self.base_mut().add_child(collision_shape.upcast::<Node>());
         let mut csg_sphere = CsgSphere3D::new_alloc();
+        csg_sphere.set_name("spell_csg_sphere".into_godot());
         csg_sphere.set_radial_segments(20);
-        csg_sphere.set_rings(20);
+        csg_sphere.set_rings(18);
         csg_sphere.set_radius(radius);
         let mut csg_material = StandardMaterial3D::new_gd();
 
@@ -124,7 +181,6 @@ impl IArea3D for Spell {
         csg_material.set_emission(self.color); // Chooses what light to emit
         csg_sphere.set_material(csg_material);
         self.base_mut().add_child(csg_sphere.upcast::<Node>());
-
 
         // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
         match self.spell_virtual_machine(&self.ready_instructions.clone()) {
@@ -154,17 +210,20 @@ impl IArea3D for Spell {
         // Handle energy lose
         self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
 
-        // Radius changing of collision shape
-        let radius = Spell::energy_to_radius(self.energy);
+        if !self.form_set {
+            // Radius changing of collision shape
+            let radius = Spell::energy_to_radius(self.energy);
 
-        let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("@CollisionShape3D@3");
-        let shape = collsion_shape.get_shape().unwrap();
-        let mut sphere = shape.cast::<SphereShape3D>();
-        sphere.set_radius(radius);
+            let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
+            let shape = collsion_shape.get_shape().unwrap();
+            let mut sphere = shape.cast::<SphereShape3D>();
+            sphere.set_radius(radius);
 
-        // Changing radius of csg sphere
-        let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("@CSGSphere3D@4");
-        csg_sphere.set_radius(radius);
+            // Changing radius of csg sphere
+            let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("spell_csg_sphere");
+            csg_sphere.set_radius(radius);
+        }
+
 
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
@@ -175,7 +234,7 @@ impl IArea3D for Spell {
 
 
 impl Spell {
-    fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), ()> { // TODO: Handle result in process and ready
+    fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), ()> {
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
@@ -315,7 +374,6 @@ impl Spell {
         self.base_mut().queue_free();
     }
 
-
     fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<Vec<u64>>, ()> {
         // Getting component cast count
         if let Some((function, _, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
@@ -363,17 +421,72 @@ impl Spell {
         (energy / ENERGY_TO_RADIUS_CONSTANT) as f32
     }
 
-    fn get_number_of_component_parameters(component_code: &u64) -> u64 {
+    fn get_number_of_component_parameters(component_code: &u64) -> usize {
         if let Some((_, number_of_parameters, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-            return number_of_parameters.len() as u64
+            return number_of_parameters.len()
         } else {
             panic!("Component doesn't exist")
         }
+    }
+
+    fn set_form(&mut self, form_code: u64) {
+        let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
+
+        let mut scene: Gd<PackedScene> = load(&form_config.path);
+
+        self.form_set = true;
+        scene.set_name("form".into_godot());
+        let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
+        csg_sphere.set_visible(false);
+        self.base_mut().add_child(scene.instantiate().expect("Expected to be able to create scene"));
+    }
+
+    fn undo_form(&mut self) {
+        self.form_set = false;
+        let mut form: Gd<Node> = self.base_mut().get_node_as("form".into_godot());
+        form.queue_free();
+        let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
+        csg_sphere.set_visible(true);
+    }
+
+    // TODO: Finish
+    fn check_if_parameter_allowed(parameter: u64, allowed_arrary: Array<Variant>) -> Result<(), &'static str> {
+        return Ok(())
+    }
+
+    // TODO: Finish
+    fn internal_check_allowed_to_cast(&self, instructions_json: GString) -> Result<(), &'static str> {
+        let instructions_string = instructions_json.to_string();
+        let instructions: Vec<u64> = serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions");
+        let spell_catalogue = load_spell_catalogue();
+
+        let mut instructions_iter = instructions.iter();
+        while let Some(&bits) = instructions_iter.next() {
+            match bits {
+                102 => _ = instructions_iter.next(),
+                103 => {
+                    let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
+                    let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
+                    let allowed_parameters_list: Array<Array<Variant>> = spell_catalogue.get(component_code.to_godot()).ok_or("Component isn't in spell catalogue")?.to();
+                    for index in 0..number_of_component_parameters {
+                        Spell::check_if_parameter_allowed(*instructions_iter.next().expect("Expected parameter"), allowed_parameters_list.at(index))?;
+                    }
+                },
+                _ => {}
+            }
+        }
+        return Ok(())
     }
 }
 
 #[godot_api]
 impl Spell {
+    // TODO: Finish
+    #[func]
+    fn check_allowed_to_cast(&self, instructions_json: GString) -> Dictionary {
+        dict! {}
+    }
+
     #[func]
     fn set_efficiency_levels(&mut self, efficiency_levels_bytecode_json: GString) {
         let json_string = efficiency_levels_bytecode_json.to_string();
@@ -420,33 +533,42 @@ impl Spell {
         let instructions: Vec<u64> = serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions");
         let mut section_instructions: Vec<u64> = vec![];
         let mut last_section: u64 = 0;
-        for instruction in instructions {
+        let mut instructions_iter = instructions.iter();
+        while let Some(&instruction) = instructions_iter.next() {
             match instruction {
-                500 => match last_section {
-                    0 => last_section = 500,
-                    501 => {
-                        last_section = 500;
-                        self.process_instructions = section_instructions.clone();
-                        section_instructions.clear();
-                    },
-                    _ => panic!("Invalid section")
+                102 => { // Number literal
+                    section_instructions.push(instruction);
+                    section_instructions.push(*instructions_iter.next().expect("Expected number after literal opcode"))
+                }
+                103 => { // Component
+                    section_instructions.push(instruction);
+                    let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
+                    section_instructions.push(*component_code);
+                    let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
+                    for _ in 0..number_of_component_parameters {
+                        section_instructions.push(*instructions_iter.next().expect("Expected parameters for component"));
+                    }
                 },
-                501 => match last_section {
-                    0 => last_section = 501,
-                    500 => {
-                        last_section = 501;
-                        self.ready_instructions = section_instructions.clone();
-                        section_instructions.clear();
-                    },
-                    _ => panic!("Invalid section")
+                500..=501 => { // Section opcodes
+                    match last_section {
+                        0 => {},
+                        500 => {self.ready_instructions = section_instructions.clone()},
+                        501 => self.process_instructions = section_instructions.clone(),
+                        _ => panic!("Invalid section")
+                    }
+
+                    section_instructions.clear();
+                    last_section = instruction;
                 },
-                num => section_instructions.push(num)
+                _ => section_instructions.push(instruction)
             }
         }
+
+        // match the end section
         match last_section {
+            0 => {},
             500 => self.ready_instructions = section_instructions.clone(),
             501 => self.process_instructions = section_instructions.clone(),
-            0 => {},
             _ => panic!("Invalid section")
         }
     }

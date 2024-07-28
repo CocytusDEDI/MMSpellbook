@@ -18,16 +18,36 @@ pub fn give_velocity(spell: &mut Spell, parameters: &[u64], should_execute: bool
 }
 
 pub fn moving(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
-    let parameter_speed = f64::from_bits(parameters[0]);
-
     // Static energy return
     if !should_execute {
         return Some(vec![f64::to_bits(0.1)])
     }
+
+    let parameter_speed = f64::from_bits(parameters[0]);
 
     if (spell.velocity.x.powi(2) + spell.velocity.y.powi(2) + spell.velocity.z.powi(2)).sqrt() >= parameter_speed as f32 {
         return Some(vec![100])
     } else {
         return Some(vec![101])
     }
+}
+
+pub fn take_form(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    let form_code = f64::from_bits(parameters[0]) as u64;
+
+    if !should_execute {
+        return Some(vec![f64::to_bits(spell.config.forms.get(&form_code).expect("Expected form code to map to a form").energy_required)])
+    }
+
+    spell.set_form(form_code);
+    return None
+}
+
+pub fn undo_form(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    if !should_execute {
+        return Some(vec![0])
+    }
+
+    spell.undo_form();
+    return None
 }

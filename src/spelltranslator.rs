@@ -21,6 +21,8 @@ lazy_static! {
 
         // Utility:
         component_map.insert(pad_component_name("give_velocity"), 0);
+        component_map.insert(pad_component_name("take_form"), 1);
+        component_map.insert(pad_component_name("undo_form"), 2);
 
         // Logic:
         component_map.insert(pad_component_name("moving"), 1000);
