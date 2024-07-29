@@ -1,6 +1,7 @@
 use godot::classes::file_access;
 use godot::classes::FileAccess;
 use godot::prelude::*;
+use godot::classes::Time;
 use godot::classes::Area3D;
 use godot::classes::IArea3D;
 use godot::classes::CollisionShape3D;
@@ -104,7 +105,7 @@ static COMPONENT_2_ARGS: &[u64] = &[];
 
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
-    // The u64 type conversion goes as follows: 0 = u64, 1 = f64, 2 = bool
+    // The u64 type conversion goes as follows: 1 = f64, 2 = bool
     static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
         // Utility:
@@ -114,6 +115,7 @@ lazy_static! {
 
         // Logic:
         component_map.insert(1000, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
+        component_map.insert(1001, (component_functions::get_time as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::Float));
 
         // Power:
         // None
@@ -132,6 +134,8 @@ struct Spell {
     form_set: bool,
     config: Config,
     velocity: Vector3,
+    time: Option<Gd<Time>>,
+    start_time: Option<u64>,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<u64>,
     component_efficiency_levels: HashMap<u64, f64>
@@ -148,6 +152,8 @@ impl IArea3D for Spell {
             form_set: false,
             config: load_string_config().to_config(),
             velocity: Vector3::new(0.0, 0.0, 0.0),
+            time: None,
+            start_time: None,
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: Vec::new(),
             process_instructions: Vec::new(),
@@ -156,6 +162,14 @@ impl IArea3D for Spell {
     }
 
     fn ready(&mut self) {
+        // Starting time
+        self.time = Some(Time::singleton());
+        if let Some(ref time) = self.time {
+            self.start_time = Some(time.get_ticks_msec());
+        } else {
+            panic!("Time not available")
+        }
+
         // Creating visual representation of spell in godot
         let mut collision_shape = CollisionShape3D::new_alloc();
         collision_shape.set_name("spell_collision_shape".into_godot());
@@ -240,13 +254,7 @@ impl Spell {
             match bits {
                 0 => {}, // 0 = end of scope, if reached naturely, move on
                 103 => { // 103 = component
-                    let component_code = instructions_iter.next().expect("Expected component");
-                    let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
-                    let mut parameters: Vec<u64> = vec![];
-                    for _ in 0..number_of_component_parameters {
-                        parameters.push(*instructions_iter.next().expect("Expected parameter"));
-                    }
-                    self.call_component(component_code, parameters)?;
+                    let _ = self.execute_component(&mut instructions_iter);
                 },
                 400 => { // 400 = if statement
                     let mut rpn_stack: Vec<u64> = vec![];
@@ -256,13 +264,7 @@ impl Spell {
                             100..=101 => rpn_stack.push(if_bits), // true and false
                             102 => rpn_stack.push(*instructions_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
                             103 => { // Component
-                                let component_code = instructions_iter.next().expect("Expected component");
-                                let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
-                                let mut parameters: Vec<u64> = vec![];
-                                for _ in 0..number_of_component_parameters {
-                                    parameters.push(*instructions_iter.next().expect("Expected parameter"));
-                                }
-                                rpn_stack.extend(self.call_component(component_code, parameters)?.expect("Expected return from function"));
+                                rpn_stack.extend(self.execute_component(&mut instructions_iter)?)
                             }
                             200 => { // And statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
@@ -347,11 +349,7 @@ impl Spell {
                                     0 => skip_amount -= 1, // If end of scope
                                     102 => _ = instructions_iter.next(), // Ignores number literals
                                     103 => {
-                                        let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
-                                        let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
-                                        for _ in 0..number_of_component_parameters {
-                                            _ = instructions_iter.next();
-                                        }
+                                        self.skip_component(&mut instructions_iter);
                                     }
                                     400 => skip_amount += 2, // Ignore next two end of scopes because if statements have two end of scopes
                                     _ => {}
@@ -370,17 +368,63 @@ impl Spell {
         return Ok(())
     }
 
+    fn skip_component<'a>(&mut self, instructions_iter: &mut impl Iterator<Item = &'a u64>) {
+        let component_code = instructions_iter.next().expect("Expected component");
+        let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
+        for _ in 0..number_of_component_parameters {
+            let parameter = *instructions_iter.next().expect("Expected parameter");
+            match parameter {
+                100..=101 => {},
+                102 => _ = *instructions_iter.next().expect("Expected number after number literal opcode"),
+                103 => _ = self.execute_component(instructions_iter),
+                _ => panic!("Invalid parameter skipped")
+            };
+        }
+    }
+
+    fn execute_component<'a>(&mut self, instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<Vec<u64>, ()> {
+        let component_code = instructions_iter.next().expect("Expected component");
+        let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
+        let mut parameters: Vec<u64> = vec![];
+        for _ in 0..number_of_component_parameters {
+            let parameter = *instructions_iter.next().expect("Expected parameter");
+            match parameter {
+                100..=101 => parameters.push(parameter),
+                102 => {
+                    parameters.push(parameter);
+                    parameters.push(*instructions_iter.next().expect("Expected number after number literal opcode"));
+                },
+                103 => parameters.extend(self.execute_component(instructions_iter)?),
+                _ => panic!("Invalid parameter")
+            }
+        }
+
+        return self.call_component(component_code, parameters)?.ok_or(())
+    }
+
     fn free_spell(&mut self) {
         self.base_mut().queue_free();
     }
 
     fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<Vec<u64>>, ()> {
+
+        // Removes number literal opcodes
+        let mut compressed_parameters: Vec<u64> = Vec::new();
+        let mut parameter_iter = parameters.iter();
+        while let Some(parameter) = parameter_iter.next() {
+            match parameter {
+                102 => compressed_parameters.push(*parameter_iter.next().expect("Expected parameter after number literal opcode")),
+                100..=101 => compressed_parameters.push(*parameter),
+                _ => panic!("Invalid parameter: isn't float or bool")
+            }
+        }
+
         // Getting component cast count
         if let Some((function, _, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
             let mut component_efficiency_level = self.component_efficiency_levels.entry(*component_code).or_insert(1.0).clone();
 
             // Getting energy required
-            if let Some(base_energy_bits) = function(self, &parameters, false) {
+            if let Some(base_energy_bits) = function(self, &compressed_parameters, false) {
                 let base_energy = f64::from_bits(*base_energy_bits.first().expect("Expected energy useage return"));
                 // Getting efficiency from component_efficiency_level
                 let efficiency = component_efficiency_level / (component_efficiency_level + EFFICIENCY_INCREASE_RATE);
@@ -397,7 +441,7 @@ impl Spell {
                     // Emit signal to say component has been cast
                     self.emit_component_cast(*component_code, efficiency_increase);
 
-                    if let Some(value) = function(self, &parameters, true) {
+                    if let Some(value) = function(self, &compressed_parameters, true) {
                         return Ok(Some(value))
                     } else {
                         return Ok(None)
@@ -441,7 +485,10 @@ impl Spell {
         self.base_mut().add_child(scene.instantiate().expect("Expected to be able to create scene"));
     }
 
-    fn undo_form(&mut self) {
+    fn undo_form(&mut self) { // TODO: Fix
+        if self.form_set == false {
+            return
+        }
         self.form_set = false;
         let mut form: Gd<Node> = self.base_mut().get_node_as("form".into_godot());
         form.queue_free();

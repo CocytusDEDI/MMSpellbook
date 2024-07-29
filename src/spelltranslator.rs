@@ -26,8 +26,9 @@ lazy_static! {
 
         // Logic:
         component_map.insert(pad_component_name("moving"), 1000);
+        component_map.insert(pad_component_name("get_time"), 1001);
 
-        // Power:
+        // // Power:
         // None
 
         component_map
@@ -109,6 +110,7 @@ fn get_associative_direction(operator: &str) -> Direction {
     }
 }
 
+#[derive(Debug)]
 enum Token {
     Opcode(String),
     Number(String),
@@ -220,15 +222,22 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                 }
                 if let Some('(') = characters.peek() { // Is component
                     opcode.push(characters.next().unwrap()); // Push OpenBracket
+                    let mut expected_closing_brackets = 1;
                     loop {
                         if let Some(')') = characters.peek() {
                             // Push closing bracket
                             opcode.push(characters.next().unwrap());
-                            tokens.push(Token::Component(opcode));
-                            break;
+                            expected_closing_brackets -= 1;
+                        } else if let Some('(') = characters.peek() {
+                            opcode.push(characters.next().unwrap());
+                            expected_closing_brackets += 1;
                         } else {
                             // Push parameter characters
                             opcode.push(characters.next().ok_or("Expected closing bracket for component")?);
+                        }
+                        if expected_closing_brackets == 0 {
+                            tokens.push(Token::Component(opcode));
+                            break;
                         }
                     }
                     last_token_was_value = true;
@@ -274,6 +283,36 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
     return Ok(tokens)
 }
 
+fn test_execute_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<Vec<u64>, &'static str> {
+    let component_code = instructions_iter.next().ok_or("expected component")?;
+    let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
+    let mut parameters: Vec<u64> = vec![];
+    for _ in 0..number_of_component_parameters {
+        let parameter = *instructions_iter.next().ok_or("expected parameter")?;
+
+        match parameter {
+            100..=101 => parameters.push(parameter),
+            102 => {
+                parameters.push(parameter);
+                parameters.push(*instructions_iter.next().ok_or("Expected number after number literal opcode")?);
+            },
+            103 => parameters.extend(test_execute_component(instructions_iter)?),
+            _ => return Err("Invalid parameter")
+        }
+    }
+
+    return match COMPONENT_TO_FUNCTION_MAP.get(component_code) {
+        Some((_, _, return_type)) => {
+            match *return_type {
+                ReturnType::Float => Ok(vec![102, 0]),
+                ReturnType::Boolean => Ok(vec![100]),
+                ReturnType::None => return Err("Expected return from component")
+            }
+        },
+        None => return Err("Component does not exist")
+    };
+}
+
 fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
     let mut logic_iter = logic.iter();
     let mut rpn_stack: Vec<u64> = Vec::new();
@@ -283,22 +322,7 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
             100..=101 => rpn_stack.push(if_bits), // true and false
             102 => rpn_stack.push(*logic_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
             103 => { // Component
-                let component_code = logic_iter.next().expect("Expected component");
-                let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
-                let mut parameters: Vec<u64> = vec![];
-                for _ in 0..number_of_component_parameters {
-                    parameters.push(*logic_iter.next().expect("Expected parameter"));
-                }
-                rpn_stack.extend(match COMPONENT_TO_FUNCTION_MAP.get(component_code) {
-                    Some((_, _, return_type)) => {
-                        match *return_type {
-                            ReturnType::Float => vec![102, 0],
-                            ReturnType::Boolean => vec![100],
-                            ReturnType::None => return Err("Expected return from component")
-                        }
-                    },
-                    None => return Err("Component does not exist")
-                });
+                rpn_stack.extend(test_execute_component(&mut logic_iter)?);
             }
             200 => { // And statement
                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
@@ -471,7 +495,7 @@ fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
     };
     component_vec.push(component_num);
     for parameter in parameters {
-        component_vec.push(parameter.to_bits())
+        component_vec.extend(parameter.to_bits()?)
     }
     return Ok(component_vec)
 }
@@ -514,20 +538,20 @@ fn parse_component_string(component_call: &str) -> Result<(String, Vec<Parameter
 }
 
 enum Parameter {
-    Integer(u64),
     Float(f64),
-    Boolean(bool)
+    Boolean(bool),
+    Component(String)
 }
 
 impl Parameter {
-    fn to_bits(&self) -> u64 {
-        match *self {
-            Parameter::Integer(int) => int,
-            Parameter::Float(float) => float.to_bits(),
+    fn to_bits(&self) -> Result<Vec<u64>, &'static str> {
+        match self {
+            Parameter::Float(float) => Ok(vec![102, float.to_bits()]),
             Parameter::Boolean(boolean) => match boolean {
-                true => 100,
-                false => 101
-            }
+                true => Ok(vec![100]),
+                false => Ok(vec![101])
+            },
+            Parameter::Component(component) => parse_component(&component)
         }
     }
 }
@@ -538,7 +562,7 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
 
     let mut index = 0;
 
-    if let Some((_, encoded_types, _)) = COMPONENT_TO_FUNCTION_MAP.get(&get_component_num(component_name).expect("Expected component")) {
+    if let Some((_, encoded_types, _)) = COMPONENT_TO_FUNCTION_MAP.get(&get_component_num(component_name).ok_or("Component doesn't exist")?) {
         let encoded_types: &[u64] = encoded_types;
         for character in parameters_string.chars() {
             if character != ',' {
@@ -566,10 +590,17 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
         // Adding last parameter
         if !parameter.is_empty() {
             if index >= encoded_types.len() {
-                return Err("Invalid parameters: More parameters than expected types");
+                return Err("Invalid parameters: More parameters than expected");
             }
             parameters.push(parse_parameter(&parameter, encoded_types[index])?);
         }
+
+        if parameters.len() < encoded_types.len() {
+            return Err("Invalid parameters: Missing parameters")
+        } else if parameters.len() > encoded_types.len() {
+            return Err("Invalid parameters: More parameters than expected")
+        }
+
     } else {
         panic!("Expected component mapping")
     }
@@ -579,8 +610,13 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
 
 fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parameter, &'static str> {
     let trimmed_parameter_string = parameter_string.trim();
+
+    // Check if component
+    if trimmed_parameter_string.ends_with(")") {
+        return Ok(Parameter::Component(trimmed_parameter_string.to_string()))
+    }
+
     match parameter_type {
-        0 => Ok(Parameter::Integer(trimmed_parameter_string.parse::<u64>().expect("Couldn't parse parameter: should be integer"))),
         1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().expect("Couldn't parse parameter: should be float"))),
         2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().expect("Couldn't parse parameter: should be boolean"))),
         _ => Err("Invalid parameters: parameter doesn't match expected type")
@@ -604,11 +640,11 @@ mod tests {
 
     #[test]
     fn parse_basic_spell() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![500, 103, 0, f64::to_bits(1.0), f64::to_bits(1.0), f64::to_bits(1.0)]))
+        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![500, 103, 0, 102, f64::to_bits(1.0), 102, f64::to_bits(1.0), 102, f64::to_bits(1.0)]))
     }
 
     #[test]
     fn parse_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 0, 103, 0, f64::to_bits(1.0), 0, 0, 0]))
+        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 0, 103, 0, 102, f64::to_bits(1.0), 102, 0, 102, 0, 0]))
     }
 }
