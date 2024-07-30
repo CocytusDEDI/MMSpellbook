@@ -474,24 +474,28 @@ impl Spell {
     }
 
     fn set_form(&mut self, form_code: u64) {
+        if self.form_set {
+            self.undo_form();
+        }
         let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
 
         let mut scene: Gd<PackedScene> = load(&form_config.path);
 
         self.form_set = true;
-        scene.set_name("form".into_godot());
         let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
         csg_sphere.set_visible(false);
-        self.base_mut().add_child(scene.instantiate().expect("Expected to be able to create scene"));
+        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
+        instantiated_scene.set_name("form".into_godot());
+        self.base_mut().add_child(instantiated_scene);
     }
 
-    fn undo_form(&mut self) { // TODO: Fix
+    fn undo_form(&mut self) {
         if self.form_set == false {
             return
         }
         self.form_set = false;
         let mut form: Gd<Node> = self.base_mut().get_node_as("form".into_godot());
-        form.queue_free();
+        form.free();
         let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
         csg_sphere.set_visible(true);
     }
