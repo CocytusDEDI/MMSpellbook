@@ -494,7 +494,7 @@ impl Spell {
             return
         }
         self.form_set = false;
-        let mut form: Gd<Node> = self.base_mut().get_node_as("form".into_godot());
+        let form: Gd<Node> = self.base_mut().get_node_as("form".into_godot());
         form.free();
         let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
         csg_sphere.set_visible(true);
