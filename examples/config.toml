@@ -1,2 +1,2 @@
 [forms]
-0 = { "path" = "res://Spell/Scenes/fireball.tscn", "energy_requirement" = 20 }
+0 = { "path" = "res://Spell/Scenes/fireball.tscn", "energy_requirement" = 10 }

@@ -14,7 +14,7 @@ give_velocity(-1, 0, 0)
 "
 
 # Energy should be taken away from the player and given to the spell, but in this example we just give the spell energy
-var example_spell_energy = 10.0
+var example_spell_energy = 100.0
 
 func _process(delta):
     # Just to make sure infinite spells are made. Replace with your own code that chooses when to cast a spell.
