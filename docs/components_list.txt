@@ -1,9 +1,12 @@
 ## Implemented:
 utility:
 0 = give_velocity(x: float, y: float, z: float)
+1 = take_form(form: integer)
+2 = undo_form()
 
 logic:
 1000 = moving(speed: float) -> bool
+1001 = get_time() -> float
 
 power:
 
