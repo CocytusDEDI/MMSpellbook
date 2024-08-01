@@ -46,11 +46,23 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let trimmed_spell_code = spell_code.trim();
     for line in trimmed_spell_code.lines() {
         let trimmed_line = line.trim();
-        if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_') {
+        if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_' || character.is_numeric() || character == ' ') {
             let section: u64 = match trimmed_line {
                 ON_READY_NAME => 500,
-                PROCESS_NAME => 501,
-                _ => return Err("Invalid section name")
+                PROCESS_NAME => {
+                    instructions.extend(vec![501, 102]);
+                    1
+                },
+                lines => match lines.split_whitespace().collect::<Vec<&str>>()[..] {
+                    ["repeat", "every", num] => {
+                        instructions.extend(vec![501, 102]);
+                        match num.trim_end_matches(':').parse::<f64>() {
+                            Ok(num) => num as u64,
+                            Err(_) => return Err("Invalid value found after keyword \"every\"")
+                        }
+                    }
+                    _ => return Err("Invalid section name")
+                }
             };
             instructions.push(section);
             in_section = true;
@@ -641,6 +653,21 @@ mod tests {
     #[test]
     fn parse_basic_spell() {
         assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![500, 103, 0, 102, f64::to_bits(1.0), 102, f64::to_bits(1.0), 102, f64::to_bits(1.0)]))
+    }
+
+    #[test]
+    fn parse_basic_repeat() {
+        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)"), Ok(vec![501, 102, 1, 103, 0, 102, f64::to_bits(1.0), 102, f64::to_bits(1.0), 102, f64::to_bits(1.0)]))
+    }
+
+    #[test]
+    fn parse_advanced_repeat() {
+        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, 2, 103, 0, 102, 0, 102, 0, 102, 0]))
+    }
+
+    #[test]
+    fn parse_advanced_repeat_with_irregular_spacing() {
+        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, 3, 103, 0, 102, 0, 102, 0, 102, 0]))
     }
 
     #[test]
