@@ -13,7 +13,7 @@ use godot::classes::base_material_3d::Transparency;
 use godot::classes::base_material_3d::Feature;
 use lazy_static::lazy_static;
 use serde_json::{Value, json};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use spelltranslator::get_component_num;
 use spelltranslator::parse_spell;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ mod spelltranslator;
 mod component_functions;
 
 const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
-const SPELL_CATALOGUE_PATH: &'static str = "user://spell_catalogue.tres";
+const SPELL_CATALOGUE_PATH: &'static str = "user://spell_catalogue.json";
 
 // When a spell has energy below this level it is discarded as being insignificant
 const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
@@ -80,12 +80,41 @@ fn load_string_config() -> StringConfig {
     toml::de::from_str::<StringConfig>(&config_file).expect("Couldn't parse config.toml")
 }
 
-fn load_spell_catalogue() -> Dictionary {
-    let spell_catalogue_file = match FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ) {
+fn load_spell_catalogue() -> SpellCatalogue {
+    let mut spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Couldn't open spell catalogue");
+    let spell_catalogue: String = spell_catalogue_file.get_as_text().into();
+    spell_catalogue_file.close();
+    serde_json::from_str(&spell_catalogue).expect("Couldn't parse spell catalogue")
+}
+
+fn load_or_create_spell_catalogue() -> SpellCatalogue {
+    let option_spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ);
+    let mut spell_catalogue_file = match option_spell_catalogue_file {
         Some(file) => file,
-        None => panic!("Couldn't open spell catalogue")
+        None => {
+            let mut spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Expected to be able to write to spell catalogue");
+            spell_catalogue_file.store_string("{}".into_godot());
+            spell_catalogue_file.close();
+            FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Expected to be able to read spell catalogue")
+        }
     };
-    spell_catalogue_file.get_var().to()
+    let mut spell_catalogue: String = spell_catalogue_file.get_as_text().into();
+    spell_catalogue_file.close();
+    if spell_catalogue.is_empty() {
+        spell_catalogue = "{\"spell_catalogue\": {}}".to_string();
+    }
+    serde_json::from_str(&spell_catalogue).expect("Couldn't parse spell catalogue")
+}
+
+fn store_spell_catalogue(spell_catalogue: SpellCatalogue) {
+    let mut spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Couldn't write to spell catalogue");
+    spell_catalogue_file.store_string(serde_json::to_string(&spell_catalogue).expect("Couldn't turn spell catalogue into JSON").into_godot());
+    spell_catalogue_file.close()
+}
+
+#[derive(Deserialize, Serialize)]
+struct SpellCatalogue {
+    spell_catalogue: HashMap<u64, Vec<Vec<u64>>>
 }
 
 struct MyExtension;
@@ -136,6 +165,8 @@ struct Spell {
     velocity: Vector3,
     time: Option<Gd<Time>>,
     start_time: Option<u64>,
+    spell_catalogue: Option<SpellCatalogue>,
+    check_component_return_value: bool,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<u64>,
     component_efficiency_levels: HashMap<u64, f64>
@@ -154,6 +185,8 @@ impl IArea3D for Spell {
             velocity: Vector3::new(0.0, 0.0, 0.0),
             time: None,
             start_time: None,
+            spell_catalogue: None,
+            check_component_return_value: true,
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: Vec::new(),
             process_instructions: Vec::new(),
@@ -169,6 +202,9 @@ impl IArea3D for Spell {
         } else {
             panic!("Time not available")
         }
+
+        // Get spell catalogue
+        self.spell_catalogue = Some(load_spell_catalogue());
 
         // Creating visual representation of spell in godot
         let mut collision_shape = CollisionShape3D::new_alloc();
@@ -199,7 +235,7 @@ impl IArea3D for Spell {
         // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
         match self.spell_virtual_machine(&self.ready_instructions.clone()) {
             Ok(()) => {},
-            Err(()) => self.free_spell()
+            Err(_) => self.free_spell()
         }
 
         // Check if spell should be deleted due to lack of energy
@@ -218,7 +254,7 @@ impl IArea3D for Spell {
         // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
         match self.spell_virtual_machine(&self.process_instructions.clone()) {
             Ok(()) => {},
-            Err(()) => self.free_spell()
+            Err(_) => self.free_spell()
         }
 
         // Handle energy lose
@@ -248,7 +284,7 @@ impl IArea3D for Spell {
 
 
 impl Spell {
-    fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), ()> {
+    fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), &'static str> {
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
@@ -262,42 +298,54 @@ impl Spell {
                         match if_bits {
                             0 => break,
                             100..=101 => rpn_stack.push(if_bits), // true and false
-                            102 => rpn_stack.push(*instructions_iter.next().expect("Expected following value")), // if 102, next bits are a number literal
+                            102 => rpn_stack.extend(vec![102, *instructions_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
                             103 => { // Component
                                 rpn_stack.extend(self.execute_component(&mut instructions_iter)?)
                             }
                             200 => { // And statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(boolean_logic::and(bool_one, bool_two));
+                                rpn_stack.push(boolean_logic::and(bool_one, bool_two).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             201 => { // Or statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(boolean_logic::or(bool_one, bool_two));
+                                rpn_stack.push(boolean_logic::or(bool_one, bool_two).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             202 => { // Not statement
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(boolean_logic::not(bool_one));
+                                rpn_stack.push(boolean_logic::not(bool_one).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             203 => { // Xor statement
                                 let bool_two = rpn_stack.pop().expect("Expected value to compair");
                                 let bool_one = rpn_stack.pop().expect("Expected value to compair");
-                                rpn_stack.push(boolean_logic::xor(bool_one, bool_two));
+                                rpn_stack.push(boolean_logic::xor(bool_one, bool_two).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             300 => { // equals
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                if argumunt_one == argument_two {
-                                    rpn_stack.push(100);
+                                let argument_two = rpn_stack.pop().expect("Expected value to compair");
+                                let opcode_or_bool = rpn_stack.pop().expect("Expected value to compair");
+                                if opcode_or_bool == 102 {
+                                    let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                    let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                    if argument_one == f64::from_bits(argument_two) {
+                                        rpn_stack.push(100);
+                                    } else {
+                                        rpn_stack.push(101);
+                                    }
                                 } else {
-                                    rpn_stack.push(101);
+                                    if opcode_or_bool == argument_two {
+                                        rpn_stack.push(100);
+                                    } else {
+                                        rpn_stack.push(101);
+                                    }
                                 }
                             },
                             301 => { // greater than
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                if argumunt_one > argument_two {
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                if argument_one > argument_two {
                                     rpn_stack.push(100);
                                 } else {
                                     rpn_stack.push(101);
@@ -305,8 +353,10 @@ impl Spell {
                             },
                             302 => { // lesser than
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                if argumunt_one < argument_two {
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                if argument_one < argument_two {
                                     rpn_stack.push(100);
                                 } else {
                                     rpn_stack.push(101);
@@ -314,28 +364,38 @@ impl Spell {
                             },
                             600 => { // multiply
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                rpn_stack.push(f64::to_bits(argumunt_one * argument_two));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                rpn_stack.extend(vec![102, f64::to_bits(argument_one * argument_two)]);
                             }
                             601 => { // divide
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                rpn_stack.push(f64::to_bits(argumunt_one / argument_two));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                rpn_stack.extend(vec![102, f64::to_bits(argument_one / argument_two)]);
                             }
                             602 => { // add
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                rpn_stack.push(f64::to_bits(argumunt_one + argument_two));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                rpn_stack.extend(vec![102, f64::to_bits(argument_one + argument_two)]);
                             }
                             603 => { // subtract
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                rpn_stack.push(f64::to_bits(argumunt_one - argument_two));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                rpn_stack.extend(vec![102, f64::to_bits(argument_one - argument_two)]);
                             }
                             604 => { // power
                                 let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                let argumunt_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
-                                rpn_stack.push(f64::to_bits(argumunt_one.powf(argument_two)));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                rpn_stack.extend(vec![102, f64::to_bits(argument_one.powf(argument_two))]);
                             }
                             _ => panic!("Opcode doesn't exist")
                         }
@@ -382,11 +442,11 @@ impl Spell {
         }
     }
 
-    fn execute_component<'a>(&mut self, instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<Vec<u64>, ()> {
+    fn execute_component<'a>(&mut self, instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<Vec<u64>, &'static str> {
         let component_code = instructions_iter.next().expect("Expected component");
         let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
-        let mut parameters: Vec<u64> = vec![];
-        for _ in 0..number_of_component_parameters {
+        let mut parameters: Vec<u64> = Vec::new();
+        for parameter_number in 0..number_of_component_parameters {
             let parameter = *instructions_iter.next().expect("Expected parameter");
             match parameter {
                 100..=101 => parameters.push(parameter),
@@ -394,19 +454,31 @@ impl Spell {
                     parameters.push(parameter);
                     parameters.push(*instructions_iter.next().expect("Expected number after number literal opcode"));
                 },
-                103 => parameters.extend(self.execute_component(instructions_iter)?),
+                103 => {
+                    let component_return = self.execute_component(instructions_iter)?;
+                    // Checks if component return is an allowed parameter as it can't be known at compile time
+                    if self.check_component_return_value {
+                        let spell_catalogue = match self.spell_catalogue {
+                            Some(ref self_spell_catalogue) => self_spell_catalogue,
+                            None => &load_spell_catalogue()
+                        };
+                        let allowed_parameters_list: &Vec<Vec<u64>> = spell_catalogue.spell_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in spell catalogue")?;
+                        Spell::check_if_parameter_allowed(&component_return, &allowed_parameters_list[parameter_number])?;
+                    }
+                    parameters.extend(component_return);
+                },
                 _ => panic!("Invalid parameter")
             }
         }
 
-        return self.call_component(component_code, parameters)?.ok_or(())
+        return self.call_component(component_code, parameters)
     }
 
     fn free_spell(&mut self) {
         self.base_mut().queue_free();
     }
 
-    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Option<Vec<u64>>, ()> {
+    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Vec<u64>, &'static str> {
 
         // Removes number literal opcodes
         let mut compressed_parameters: Vec<u64> = Vec::new();
@@ -442,12 +514,12 @@ impl Spell {
                     self.emit_component_cast(*component_code, efficiency_increase);
 
                     if let Some(value) = function(self, &compressed_parameters, true) {
-                        return Ok(Some(value))
+                        return Ok(value)
                     } else {
-                        return Ok(None)
+                        return Ok(Vec::new())
                     }
                 } else {
-                    return Err(()) // Not enough energy to cast. Maybe change error type to inform what component or what line of bytecode couldn't be cast
+                    return Err("Not enough energy")
                 }
             } else {
                 panic!("Function should return base_energy when should_execute is false")
@@ -479,7 +551,7 @@ impl Spell {
         }
         let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
 
-        let mut scene: Gd<PackedScene> = load(&form_config.path);
+        let scene: Gd<PackedScene> = load(&form_config.path);
 
         self.form_set = true;
         let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
@@ -500,42 +572,157 @@ impl Spell {
         csg_sphere.set_visible(true);
     }
 
-    // TODO: Finish
-    fn check_if_parameter_allowed(parameter: u64, allowed_arrary: Array<Variant>) -> Result<(), &'static str> {
+    fn check_if_parameter_allowed(parameter: &Vec<u64>, allowed_values: &Vec<u64>) -> Result<(), &'static str> {
+        let mut allowed_iter = allowed_values.iter();
+        match parameter[0] {
+            100 => {
+                while let Some(&value) = allowed_iter.next() {
+                    if value == 100 || value == 104 {
+                        return Ok(())
+                    }
+                }
+            },
+            101 => {
+                while let Some(&value) = allowed_iter.next() {
+                    if value == 101 || value == 104 {
+                        return Ok(())
+                    }
+                }
+            },
+            102 => {
+                while let Some(&value) = allowed_iter.next() {
+                    if value == 104 {
+                        return Ok(())
+                    }
+                    let start_float_range = match value {
+                        102 => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
+                        _ => return Err("Invalid type: Expected float")
+                    };
+                    let stop_float_range = match allowed_iter.next().expect("Expected range of numbers") {
+                        102 => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
+                        _ => return Err("Invalid type: Expected float")
+                    };
+                    let range = start_float_range..=stop_float_range;
+                    if range.contains(&f64::from_bits(parameter[1])) {
+                        return Ok(())
+                    }
+                }
+            },
+            _ => return Err("Invalid parameter type")
+        };
+        return Err("Parameter not allowed")
+    }
+
+    fn check_allowed_to_cast_component<'a>(&self, instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<(), &'static str> {
+        let component_code = *instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
+        let number_of_component_parameters = Spell::get_number_of_component_parameters(&component_code);
+        let spell_catalogue = match self.spell_catalogue {
+            Some(ref self_spell_catalogue) => self_spell_catalogue,
+            None => &load_spell_catalogue()
+        };
+        let allowed_parameters_list: &Vec<Vec<u64>> = spell_catalogue.spell_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in spell catalogue")?;
+
+        for index in 0..number_of_component_parameters {
+            let parameter = match *instructions_iter.next().expect("Expected parameter") {
+                100 => vec![100],
+                101 => vec![101],
+                102 => vec![102, *instructions_iter.next().expect("Expected parameter")],
+                103 => {
+                    _ = instructions_iter.next();
+                    continue
+                },
+                _ => panic!("Invalid parameter")
+            };
+            Spell::check_if_parameter_allowed(&parameter, &allowed_parameters_list[index])?;
+        }
         return Ok(())
     }
 
-    // TODO: Finish
     fn internal_check_allowed_to_cast(&self, instructions_json: GString) -> Result<(), &'static str> {
         let instructions_string = instructions_json.to_string();
         let instructions: Vec<u64> = serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions");
-        let spell_catalogue = load_spell_catalogue();
 
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
                 102 => _ = instructions_iter.next(),
-                103 => {
-                    let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
-                    let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
-                    let allowed_parameters_list: Array<Array<Variant>> = spell_catalogue.get(component_code.to_godot()).ok_or("Component isn't in spell catalogue")?.to();
-                    for index in 0..number_of_component_parameters {
-                        Spell::check_if_parameter_allowed(*instructions_iter.next().expect("Expected parameter"), allowed_parameters_list.at(index))?;
-                    }
-                },
+                103 => _ = self.check_allowed_to_cast_component(&mut instructions_iter)?,
                 _ => {}
             }
         }
         return Ok(())
     }
+
+    fn add_component_to_spell_catalogue(component_code: u64, parameter_restrictions: Vec<Vec<&str>>) {
+        let mut spell_catalogue = load_or_create_spell_catalogue();
+        let mut parsed_parameter_restrictions: Vec<Vec<u64>> = Vec::new();
+        let mut index = 0;
+        for parameter_allowed_values in parameter_restrictions {
+            parsed_parameter_restrictions.push(Vec::new());
+            for allowed_value in parameter_allowed_values {
+                match allowed_value {
+                    "ANY" => {
+                        parsed_parameter_restrictions[index].push(104);
+                        break;
+                    },
+                    "true" => parsed_parameter_restrictions[index].push(100),
+                    "false" => parsed_parameter_restrictions[index].push(101),
+                    something => {
+                        if let Ok(number) = something.parse::<f64>() {
+                            parsed_parameter_restrictions[index].extend(vec![102, f64::to_bits(number), 102, f64::to_bits(number)]);
+                        } else if something.contains('-') {
+                            let numbers: Vec<&str> = something.split('-').collect();
+                            if let (Ok(start_range), Ok(stop_range)) = (numbers[0].trim().parse::<f64>(), numbers[1].trim().parse::<f64>()) {
+                                parsed_parameter_restrictions[index].extend(vec![102, f64::to_bits(start_range), 102, f64::to_bits(stop_range)]);
+                            } else {
+                                panic!("Couldn't parse range")
+                            }
+                        }
+                    }
+                }
+            }
+            index += 1;
+        }
+
+        spell_catalogue.spell_catalogue.insert(component_code, parsed_parameter_restrictions);
+        store_spell_catalogue(spell_catalogue);
+    }
 }
 
 #[godot_api]
 impl Spell {
-    // TODO: Finish
+    /// Checks instructions against the spell catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered.
     #[func]
     fn check_allowed_to_cast(&self, instructions_json: GString) -> Dictionary {
-        dict! {}
+        let (allowed_to_cast, denial_reason) = match self.internal_check_allowed_to_cast(instructions_json) {
+            Ok(_) => (true, ""),
+            Err(error_message) => (false, error_message)
+        };
+        return dict! {"allowed_to_cast": allowed_to_cast, "denial_reason": denial_reason}
+    }
+
+    #[func]
+    fn reset_spell_catalogue() {
+        store_spell_catalogue(SpellCatalogue { spell_catalogue: HashMap::new() });
+    }
+
+    #[func]
+    fn add_component(component: GString) {
+        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let number_of_parameters = Spell::get_number_of_component_parameters(&component_code);
+        let mut parameter_restrictions: Vec<Vec<&str>> = Vec::new();
+        for _ in 0..number_of_parameters {
+            parameter_restrictions.push(vec!["ANY"]);
+        }
+        Spell::add_component_to_spell_catalogue(component_code, parameter_restrictions);
+    }
+
+    #[func]
+    fn add_restricted_component(component: GString, parameter_restrictions: GString) {
+        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let string_parameter_restrictions = parameter_restrictions.to_string();
+        let parameter_restrictions: Vec<Vec<&str>> = serde_json::from_str(&string_parameter_restrictions).expect("Couldn't parse JSON");
+        Spell::add_component_to_spell_catalogue(component_code, parameter_restrictions);
     }
 
     #[func]
@@ -636,6 +823,16 @@ impl Spell {
     }
 
     #[func]
+    fn set_check_component_return_value(&mut self, boolean: bool) {
+        self.check_component_return_value = boolean;
+    }
+
+    #[func]
+    fn get_check_component_return_value(&self) -> bool {
+        self.check_component_return_value
+    }
+
+    #[func]
     fn set_energy(&mut self, energy: f64) {
         self.energy = energy;
     }
@@ -679,45 +876,45 @@ impl Spell {
 }
 
 mod boolean_logic {
-    pub fn and(first: u64, second: u64) -> u64 {
+    pub fn and(first: u64, second: u64) -> Result<u64, &'static str> {
         // 100 = true, 101 = false
         match (first, second) {
-            (100, 100) => 100,
-            (100, 101) => 101,
-            (101, 100) => 101,
-            (101, 101) => 101,
-            _ => panic!("Parameters must be 100 or 101")
+            (100, 100) => Ok(100),
+            (100, 101) => Ok(101),
+            (101, 100) => Ok(101),
+            (101, 101) => Ok(101),
+            _ => Err("Boolean logic can only compair booleans")
         }
     }
 
-    pub fn or(first: u64, second: u64) -> u64 {
+    pub fn or(first: u64, second: u64) -> Result<u64, &'static str> {
         // 100 = true, 101 = false
         match (first, second) {
-            (100, 100) => 100,
-            (100, 101) => 100,
-            (101, 100) => 100,
-            (101, 101) => 101,
-            _ => panic!("Parameters must be 100 or 101")
+            (100, 100) => Ok(100),
+            (100, 101) => Ok(100),
+            (101, 100) => Ok(100),
+            (101, 101) => Ok(101),
+            _ => Err("Boolean logic can only compair booleans")
         }
     }
 
-    pub fn xor(first: u64, second: u64) -> u64 {
+    pub fn xor(first: u64, second: u64) -> Result<u64, &'static str> {
         // 100 = true, 101 = false
         match (first, second) {
-            (100, 100) => 101,
-            (100, 101) => 100,
-            (101, 100) => 100,
-            (101, 101) => 101,
-            _ => panic!("Parameters must be 100 or 101")
+            (100, 100) => Ok(101),
+            (100, 101) => Ok(100),
+            (101, 100) => Ok(100),
+            (101, 101) => Ok(101),
+            _ => Err("Boolean logic can only compair booleans")
         }
     }
 
-    pub fn not(first: u64) -> u64 {
+    pub fn not(first: u64) -> Result<u64, &'static str> {
         // 100 = true, 101 = false
         match first {
-            100 => 101,
-            101 => 100,
-            _ => panic!("Parameters must be 100 or 101")
+            100 => Ok(101),
+            101 => Ok(100),
+            _ => Err("Not can only be used on booleans")
         }
     }
 }
