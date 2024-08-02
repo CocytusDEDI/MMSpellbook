@@ -272,8 +272,6 @@ impl IArea3D for Spell {
         let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
         self.base_mut().set_position(new_position);
 
-        
-        let mut physics_processes = self.process_instructions.clone();
 
 
 
