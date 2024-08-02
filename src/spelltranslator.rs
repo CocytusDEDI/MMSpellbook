@@ -4,8 +4,8 @@ use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic};
 
 const FUNCTION_NAME_SIZE: usize = 30;
 
-const ON_READY_NAME: &'static str = "when_created:";
-const PROCESS_NAME: &'static str = "repeat:";
+const ON_READY_NAME: &'static str = "when_created";
+const PROCESS_NAME: &'static str = "repeat";
 
 fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
     let mut padded_name = [None; FUNCTION_NAME_SIZE];
@@ -46,13 +46,23 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let trimmed_spell_code = spell_code.trim();
     for line in trimmed_spell_code.lines() {
         let trimmed_line = line.trim();
-        if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_') {
-            let section: u64 = match trimmed_line {
-                ON_READY_NAME => 500,
-                PROCESS_NAME => 501,
-                _ => return Err("Invalid section name")
+        if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_' || character.is_numeric() || character == ' ') {
+            match trimmed_line.trim_end_matches(':') {
+                ON_READY_NAME => instructions.push(500),
+                PROCESS_NAME => {
+                    instructions.extend(vec![501, 102, f64::to_bits(1.0)]);
+                },
+                lines => match lines.split_whitespace().collect::<Vec<&str>>()[..] {
+                    ["repeat", "every", num] => {
+                        instructions.extend(vec![501, 102]);
+                        instructions.push(match num.parse::<u64>() {
+                            Ok(num) => f64::to_bits(num as f64),
+                            Err(_) => return Err("Invalid value found after keyword \"every\"")
+                        })
+                    }
+                    _ => return Err("Invalid section name")
+                }
             };
-            instructions.push(section);
             in_section = true;
         } else {
             if in_section { // If in section, parse code
@@ -671,7 +681,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_basic_if_statement_spell() {
+    fn parse_basic_repeat() {
+        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)"), Ok(vec![501, 102, f64::to_bits(1.0), 103, 0, 102, f64::to_bits(1.0), 102, f64::to_bits(1.0), 102, f64::to_bits(1.0)]))
+    }
+
+    #[test]
+    fn parse_advanced_repeat() {
+        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, f64::to_bits(2.0), 103, 0, 102, 0, 102, 0, 102, 0]))
+    }
+
+    #[test]
+    fn parse_advanced_repeat_with_irregular_spacing() {
+        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, f64::to_bits(3.0), 103, 0, 102, 0, 102, 0, 102, 0]))
+    }
+
+    #[test]
+    fn parse_if_statement_spell() {
         assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 0, 103, 0, 102, f64::to_bits(1.0), 102, 0, 102, 0, 0]))
     }
 

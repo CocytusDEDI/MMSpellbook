@@ -153,6 +153,27 @@ lazy_static! {
     };
 }
 
+#[derive(Clone)]
+struct Process {
+    counter: f64,
+    frequency: f64,
+    instructions: Vec<u64>
+}
+
+impl Process {
+    fn new(frequency: f64, instructions: Vec<u64>) -> Self {
+        Process { counter: 0.0, frequency, instructions}
+    }
+
+    fn increment(&mut self) {
+        self.counter = (self.counter + 1.0) % self.frequency
+    }
+
+    fn should_run(&self) -> bool {
+        self.counter == 0.0
+    }
+}
+
 #[derive(GodotClass)]
 #[class(base=Area3D)]
 struct Spell {
@@ -168,7 +189,7 @@ struct Spell {
     spell_catalogue: Option<SpellCatalogue>,
     check_component_return_value: bool,
     ready_instructions: Vec<u64>,
-    process_instructions: Vec<u64>,
+    process_instructions: Vec<Process>,
     component_efficiency_levels: HashMap<u64, f64>
 }
 
@@ -232,7 +253,7 @@ impl IArea3D for Spell {
         csg_sphere.set_material(csg_material);
         self.base_mut().add_child(csg_sphere.upcast::<Node>());
 
-        // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
+        // Handle instructions, throws error if it doesn't have enough energy to cast a component
         match self.spell_virtual_machine(&self.ready_instructions.clone()) {
             Ok(()) => {},
             Err(_) => self.free_spell()
@@ -251,11 +272,27 @@ impl IArea3D for Spell {
         let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
         self.base_mut().set_position(new_position);
 
-        // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
-        match self.spell_virtual_machine(&self.process_instructions.clone()) {
-            Ok(()) => {},
-            Err(_) => self.free_spell()
+        let mut physics_processes = self.process_instructions.clone();
+
+        for process in physics_processes.iter_mut() {
+            // Handle instructions, frees the spell if it fails
+
+            process.increment();
+
+            if !process.should_run() { continue };
+
+            match self.spell_virtual_machine(&process.instructions) {
+                Ok(()) => {},
+                Err(_) => self.free_spell()
+            }
+
+            // Check if spell should be deleted due to lack of energy
+            if self.energy < ENERGY_CONSIDERATION_LEVEL {
+                self.free_spell();
+            }
         }
+
+        self.process_instructions = physics_processes;
 
         // Handle energy lose
         self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
@@ -274,7 +311,10 @@ impl IArea3D for Spell {
             csg_sphere.set_radius(radius);
         }
 
-
+        // Check if spell should be deleted due to lack of energy
+        if self.energy < ENERGY_CONSIDERATION_LEVEL {
+            self.free_spell();
+        }
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.free_spell();
@@ -776,22 +816,17 @@ impl Spell {
             match instruction {
                 102 => { // Number literal
                     section_instructions.push(instruction);
-                    section_instructions.push(*instructions_iter.next().expect("Expected number after literal opcode"))
-                }
-                103 => { // Component
-                    section_instructions.push(instruction);
-                    let component_code = instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
-                    section_instructions.push(*component_code);
-                    let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
-                    for _ in 0..number_of_component_parameters {
-                        section_instructions.push(*instructions_iter.next().expect("Expected parameters for component"));
-                    }
+                    let something = *instructions_iter.next().expect("Expected number after literal opcode");
+                    section_instructions.push(something);
                 },
                 500..=501 => { // Section opcodes
                     match last_section {
                         0 => {},
-                        500 => {self.ready_instructions = section_instructions.clone()},
-                        501 => self.process_instructions = section_instructions.clone(),
+                        500 => self.ready_instructions = section_instructions.clone(),
+                        501 => {
+                            section_instructions.remove(0);
+                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
+                        },
                         _ => panic!("Invalid section")
                     }
 
@@ -806,7 +841,10 @@ impl Spell {
         match last_section {
             0 => {},
             500 => self.ready_instructions = section_instructions.clone(),
-            501 => self.process_instructions = section_instructions.clone(),
+            501 => {
+                section_instructions.remove(0);
+                self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
+            },
             _ => panic!("Invalid section")
         }
     }
