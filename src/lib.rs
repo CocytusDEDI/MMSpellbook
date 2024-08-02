@@ -124,6 +124,27 @@ lazy_static! {
     };
 }
 
+#[derive(Clone)]
+struct Process {
+    counter: u64,
+    frequency: u64,
+    instructions: Vec<u64>
+}
+
+impl Process {
+    fn increment(&mut self) {
+        self.counter = (self.counter + 1) % self.frequency
+    }
+
+    fn should_run(&self) -> bool {
+        self.counter == 0
+    }
+
+    fn get_instructions(&self) -> Vec<u64> {
+        self.instructions.clone()
+    }
+}
+
 #[derive(GodotClass)]
 #[class(base=Area3D)]
 struct Spell {
@@ -137,7 +158,7 @@ struct Spell {
     time: Option<Gd<Time>>,
     start_time: Option<u64>,
     ready_instructions: Vec<u64>,
-    process_instructions: Vec<u64>,
+    process_instructions: Vec<Process>,
     component_efficiency_levels: HashMap<u64, f64>
 }
 
@@ -215,33 +236,38 @@ impl IArea3D for Spell {
         let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
         self.base_mut().set_position(new_position);
 
-        // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
-        match self.spell_virtual_machine(&self.process_instructions.clone()) {
-            Ok(()) => {},
-            Err(()) => self.free_spell()
-        }
+        for mut process in & mut self.process_instructions {
+            process.increment();
+            if !process.should_run() { continue };
 
-        // Handle energy lose
-        self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
+            // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
+            match self.spell_virtual_machine(&process.get_instructions()) {
+                Ok(()) => {},
+                Err(()) => self.free_spell()
+            }
+            
+            // Handle energy lose
+            self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
+            
+            if !self.form_set {
+                // Radius changing of collision shape
+                let radius = Spell::energy_to_radius(self.energy);
+                
+                let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
+                let shape = collsion_shape.get_shape().unwrap();
+                let mut sphere = shape.cast::<SphereShape3D>();
+                sphere.set_radius(radius);
+                
+                // Changing radius of csg sphere
+                let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("spell_csg_sphere");
+                csg_sphere.set_radius(radius);
+            }
 
-        if !self.form_set {
-            // Radius changing of collision shape
-            let radius = Spell::energy_to_radius(self.energy);
-
-            let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
-            let shape = collsion_shape.get_shape().unwrap();
-            let mut sphere = shape.cast::<SphereShape3D>();
-            sphere.set_radius(radius);
-
-            // Changing radius of csg sphere
-            let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("spell_csg_sphere");
-            csg_sphere.set_radius(radius);
-        }
-
-
-        // Check if spell should be deleted due to lack of energy
-        if self.energy < ENERGY_CONSIDERATION_LEVEL {
-            self.free_spell();
+            
+            // Check if spell should be deleted due to lack of energy
+            if self.energy < ENERGY_CONSIDERATION_LEVEL {
+                self.free_spell();
+            }
         }
     }
 }
@@ -604,7 +630,10 @@ impl Spell {
                     match last_section {
                         0 => {},
                         500 => {self.ready_instructions = section_instructions.clone()},
-                        501 => self.process_instructions = section_instructions.clone(),
+                        501 => {
+                            instructions_iter.next();
+                            self.process_instructions.push(Process{counter: 0, frequency: *instructions_iter.next().expect("Expected number after literal opcode"), instructions: section_instructions.clone()})
+                        },
                         _ => panic!("Invalid section")
                     }
 
@@ -619,7 +648,10 @@ impl Spell {
         match last_section {
             0 => {},
             500 => self.ready_instructions = section_instructions.clone(),
-            501 => self.process_instructions = section_instructions.clone(),
+            501 => {
+                instructions_iter.next();
+                self.process_instructions.push(Process{counter: 0, frequency: *instructions_iter.next().expect("Expected number after literal opcode"), instructions: section_instructions.clone()})
+            },
             _ => panic!("Invalid section")
         }
     }
