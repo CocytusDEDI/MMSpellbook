@@ -289,32 +289,24 @@ impl IArea3D for Spell {
             // Handle energy lose
             self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
 
-            if !self.form_set {
-                // Radius changing of collision shape
-                let radius = Spell::energy_to_radius(self.energy);
+        if !self.form_set {
+            // Radius changing of collision shape
+            let radius = Spell::energy_to_radius(self.energy);
 
-                let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
-                let shape = collsion_shape.get_shape().unwrap();
-                let mut sphere = shape.cast::<SphereShape3D>();
-                sphere.set_radius(radius);
+            let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
+            let shape = collsion_shape.get_shape().unwrap();
+            let mut sphere = shape.cast::<SphereShape3D>();
+            sphere.set_radius(radius);
 
-                // Changing radius of csg sphere
-                let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("spell_csg_sphere");
-                csg_sphere.set_radius(radius);
-            }
-
-
-            // Check if spell should be deleted due to lack of energy
-            if self.energy < ENERGY_CONSIDERATION_LEVEL {
-                self.free_spell();
-            }
-
-            process.increment();
+            // Changing radius of csg sphere
+            let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("spell_csg_sphere");
+            csg_sphere.set_radius(radius);
         }
 
-        self.process_instructions = physics_processes;
-
-            
+        // Check if spell should be deleted due to lack of energy
+        if self.energy < ENERGY_CONSIDERATION_LEVEL {
+            self.free_spell();
+        }
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.free_spell();
