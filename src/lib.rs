@@ -236,32 +236,47 @@ impl IArea3D for Spell {
         let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
         self.base_mut().set_position(new_position);
 
-        for mut process in & mut self.process_instructions {
-            process.increment();
+        
+        let mut physics_processes = self.process_instructions.clone();
+
+        for process in physics_processes.iter_mut() {
+            // Handle instructions, frees the spell if it fails
+
             if !process.should_run() { continue };
 
-            // Hanlde instructions, throws error if it doesn't have enough energy to cast a component
-            match self.spell_virtual_machine(&process.get_instructions()) {
+            match self.spell_virtual_machine(&process.instructions) {
                 Ok(()) => {},
                 Err(()) => self.free_spell()
             }
-            
+
+
             // Handle energy lose
             self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
-            
+
             if !self.form_set {
                 // Radius changing of collision shape
                 let radius = Spell::energy_to_radius(self.energy);
-                
+
                 let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
                 let shape = collsion_shape.get_shape().unwrap();
                 let mut sphere = shape.cast::<SphereShape3D>();
                 sphere.set_radius(radius);
-                
+
                 // Changing radius of csg sphere
                 let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("spell_csg_sphere");
                 csg_sphere.set_radius(radius);
             }
+
+
+            // Check if spell should be deleted due to lack of energy
+            if self.energy < ENERGY_CONSIDERATION_LEVEL {
+                self.free_spell();
+            }
+
+            process.increment();
+        }
+
+        self.process_instructions = physics_processes;
 
             
             // Check if spell should be deleted due to lack of energy
