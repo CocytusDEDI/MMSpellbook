@@ -833,7 +833,7 @@ impl Spell {
                         500 => {self.ready_instructions = section_instructions.clone()},
                         501 => {
                             instructions_iter.next();
-                            self.process_instructions.push(Process{counter: 0, frequency: *instructions_iter.next().expect("Expected number after literal opcode"), instructions: section_instructions.clone()})
+                            self.process_instructions.push(Process::new(*instructions_iter.next().expect("Expected number after literal opcode"), section_instructions.clone()))
                         },
                         _ => panic!("Invalid section")
                     }
@@ -851,7 +851,7 @@ impl Spell {
             500 => self.ready_instructions = section_instructions.clone(),
             501 => {
                 instructions_iter.next();
-                self.process_instructions.push(Process{counter: 0, frequency: *instructions_iter.next().expect("Expected number after literal opcode"), instructions: section_instructions.clone()})
+                self.process_instructions.push(Process::new(*instructions_iter.next().expect("Expected number after literal opcode"), section_instructions.clone()))
             },
             _ => panic!("Invalid section")
         }
