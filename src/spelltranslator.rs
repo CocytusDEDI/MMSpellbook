@@ -4,8 +4,8 @@ use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic};
 
 const FUNCTION_NAME_SIZE: usize = 30;
 
-const ON_READY_NAME: &'static str = "when_created:";
-const PROCESS_NAME: &'static str = "repeat:";
+const ON_READY_NAME: &'static str = "when_created";
+const PROCESS_NAME: &'static str = "repeat";
 
 fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
     let mut padded_name = [None; FUNCTION_NAME_SIZE];
@@ -47,7 +47,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     for line in trimmed_spell_code.lines() {
         let trimmed_line = line.trim();
         if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_' || character.is_numeric() || character == ' ') {
-            let section: u64 = match trimmed_line {
+            let section: u64 = match trimmed_line.trim_end_matches(':') {
                 ON_READY_NAME => 500,
                 PROCESS_NAME => {
                     instructions.extend(vec![501, 102]);
@@ -56,7 +56,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                 lines => match lines.split_whitespace().collect::<Vec<&str>>()[..] {
                     ["repeat", "every", num] => {
                         instructions.extend(vec![501, 102]);
-                        match num.trim_end_matches(':').parse::<u64>() {
+                        match num.parse::<u64>() {
                             Ok(num) => f64::to_bits(num as f64),
                             Err(_) => return Err("Invalid value found after keyword \"every\"")
                         }
