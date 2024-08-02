@@ -47,24 +47,22 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     for line in trimmed_spell_code.lines() {
         let trimmed_line = line.trim();
         if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_' || character.is_numeric() || character == ' ') {
-            let section: u64 = match trimmed_line.trim_end_matches(':') {
-                ON_READY_NAME => 500,
+            match trimmed_line.trim_end_matches(':') {
+                ON_READY_NAME => instructions.push(500),
                 PROCESS_NAME => {
-                    instructions.extend(vec![501, 102]);
-                    f64::to_bits(1.0)
+                    instructions.extend(vec![501, 102, f64::to_bits(1.0)]);
                 },
                 lines => match lines.split_whitespace().collect::<Vec<&str>>()[..] {
                     ["repeat", "every", num] => {
                         instructions.extend(vec![501, 102]);
-                        match num.parse::<u64>() {
+                        instructions.push(match num.parse::<u64>() {
                             Ok(num) => f64::to_bits(num as f64),
                             Err(_) => return Err("Invalid value found after keyword \"every\"")
-                        }
+                        })
                     }
                     _ => return Err("Invalid section name")
                 }
             };
-            instructions.push(section);
             in_section = true;
         } else {
             if in_section { // If in section, parse code
