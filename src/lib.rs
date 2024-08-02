@@ -275,8 +275,6 @@ impl IArea3D for Spell {
         
         let mut physics_processes = self.process_instructions.clone();
 
-        for process in physics_processes.iter_mut() {
-            // Handle instructions, frees the spell if it fails
 
 
         let mut physics_processes = self.process_instructions.clone();
