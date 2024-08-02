@@ -282,7 +282,7 @@ impl IArea3D for Spell {
 
             match self.spell_virtual_machine(&process.instructions) {
                 Ok(()) => {},
-                Err(()) => self.free_spell()
+                Err(_) => self.free_spell()
             }
 
 
