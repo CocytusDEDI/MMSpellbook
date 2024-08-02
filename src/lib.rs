@@ -280,14 +280,30 @@ impl IArea3D for Spell {
 
             if !process.should_run() { continue };
 
+        let mut physics_processes = self.process_instructions.clone();
+
+        for process in physics_processes.iter_mut() {
+            // Handle instructions, frees the spell if it fails
+
+            if !process.should_run() { continue };
+
             match self.spell_virtual_machine(&process.instructions) {
                 Ok(()) => {},
                 Err(_) => self.free_spell()
             }
 
+            process.increment();
 
-            // Handle energy lose
-            self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
+            // Check if spell should be deleted due to lack of energy
+            if self.energy < ENERGY_CONSIDERATION_LEVEL {
+                self.free_spell();
+            }
+        }
+
+        self.process_instructions = physics_processes;
+
+        // Handle energy lose
+        self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
 
         if !self.form_set {
             // Radius changing of collision shape
