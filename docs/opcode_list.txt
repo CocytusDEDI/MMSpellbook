@@ -4,6 +4,7 @@
 101 = false
 102 = number literal
 103 = component
+104 = ANY
 
 200 = and
 201 = or
