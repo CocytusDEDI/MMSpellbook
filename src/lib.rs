@@ -132,16 +132,16 @@ struct Process {
 }
 
 impl Process {
+    fn new(frequency: u64, instructions: Vec<u64>) -> Self {
+        Process { counter: 0, frequency: frequency, instructions: instructions}
+    }
+
     fn increment(&mut self) {
         self.counter = (self.counter + 1) % self.frequency
     }
 
     fn should_run(&self) -> bool {
         self.counter == 0
-    }
-
-    fn get_instructions(&self) -> Vec<u64> {
-        self.instructions.clone()
     }
 }
 
