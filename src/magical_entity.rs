@@ -1,6 +1,6 @@
 use std::f64::consts::E;
 
-use crate::Spell;
+use crate::{Spell, ENERGY_CONSIDERATION_LEVEL};
 
 // Godot imports
 use godot::prelude::*;
@@ -19,10 +19,10 @@ struct MagicalEntity {
     #[export]
     shield: f64,
     spell_loaded: Vec<u64>,
+    spells_cast: Vec<Gd<Spell>>,
     energy_charged: f64,
     focus_level: f64,
     max_control: f64,
-    control_left: f64, // Percentage
     max_power: f64,
     power_left: f64, // Percentage
 }
@@ -36,10 +36,10 @@ impl ICharacterBody3D for MagicalEntity {
             health: 0.0,
             shield: 0.0,
             spell_loaded: Vec::new(),
+            spells_cast: Vec::new(),
             energy_charged: 0.0,
             focus_level: 0.0,
             max_control: 10.0,
-            control_left: 1.0,
             max_power: 1.0,
             power_left: 1.0,
         }
@@ -83,14 +83,23 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn get_control(&self) -> f64 {
-        self.max_control * self.get_focus() * self.control_left
+    fn get_control(&mut self) -> f64 {
+        let mut spell_energies: f64 = 0.0;
+        self.spells_cast.retain(|spell| {
+            if spell.is_instance_valid() {
+                let spell_bind = spell.bind();
+                spell_energies += spell_bind.get_energy();
+                true
+            } else {
+                false
+            }
+        });
+
+        self.max_control * self.get_focus() - spell_energies
     }
 
     #[func]
     fn handle_spell_casting(&mut self, delta: f64) {
-        // TODO: Get all currently cast spell energies and remove it from current control.
-
         if self.input.is_action_pressed("cast".into()) {
             let extra_energy = self.get_power() * delta;
             if self.get_control() >= self.energy_charged + extra_energy {
@@ -99,10 +108,13 @@ impl MagicalEntity {
                 self.energy_charged = self.get_control();
             }
         } else if self.input.is_action_just_released("cast".into()) {
-            if !(self.get_control() >= self.energy_charged) {
-                self.energy_charged = self.get_control();
+            if self.energy_charged < ENERGY_CONSIDERATION_LEVEL {
                 return
             }
+            if self.get_control() < self.energy_charged {
+                self.energy_charged = self.get_control();
+            }
+
             let mut spell = Spell::new_alloc();
             spell.set_position(self.base().get_global_position());
 
@@ -118,8 +130,8 @@ impl MagicalEntity {
             };
 
             if can_cast.is_ok() {
-                self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(spell);
-                self.control_left -= self.energy_charged / self.max_control
+                self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
+                self.spells_cast.push(spell);
             }
 
             self.energy_charged = 0.0;

@@ -30,7 +30,7 @@ const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
 const COMPONENT_CATALOGUE_PATH: &'static str = "user://component_catalogue.json";
 
 // When a spell has energy below this level it is discarded as being insignificant
-const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
+pub const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
 
 // Used to control how fast efficiency increases with each cast
 const EFFICIENCY_INCREASE_RATE: f64 = 15.0;
