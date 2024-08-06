@@ -1,5 +1,13 @@
-use godot::classes::file_access;
-use godot::classes::FileAccess;
+use lazy_static::lazy_static;
+use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use spelltranslator::get_component_num;
+use spelltranslator::parse_spell;
+use std::collections::HashMap;
+use std::fs;
+use toml;
+
+// Godot imports
 use godot::prelude::*;
 use godot::classes::Time;
 use godot::classes::Area3D;
@@ -11,20 +19,15 @@ use godot::classes::Shape3D;
 use godot::classes::StandardMaterial3D;
 use godot::classes::base_material_3d::Transparency;
 use godot::classes::base_material_3d::Feature;
-use lazy_static::lazy_static;
-use serde_json::{Value, json};
-use serde::{Deserialize, Serialize};
-use spelltranslator::get_component_num;
-use spelltranslator::parse_spell;
-use std::collections::HashMap;
-use std::fs;
-use toml;
+use godot::classes::file_access;
+use godot::classes::FileAccess;
 
 mod spelltranslator;
 mod component_functions;
+mod magical_entity;
 
 const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
-const SPELL_CATALOGUE_PATH: &'static str = "user://spell_catalogue.json";
+const COMPONENT_CATALOGUE_PATH: &'static str = "user://component_catalogue.json";
 
 // When a spell has energy below this level it is discarded as being insignificant
 const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
@@ -40,14 +43,14 @@ const SPELL_TRANSPARENCY: f32 = 0.9;
 
 const ENERGY_TO_RADIUS_CONSTANT: f64 = 100.0;
 
-// Default spell color
-struct DefaultColor {
+#[derive(Serialize, Deserialize)]
+struct CustomColor {
     r: f32,
     g: f32,
     b: f32
 }
 
-const DEFAULT_COLOR: DefaultColor = DefaultColor { r: 1.0, g: 1.0, b: 1.0 };
+const DEFAULT_COLOR: CustomColor = CustomColor { r: 1.0, g: 1.0, b: 1.0 };
 
 #[derive(Deserialize)]
 struct StringConfig {
@@ -80,41 +83,51 @@ fn load_string_config() -> StringConfig {
     toml::de::from_str::<StringConfig>(&config_file).expect("Couldn't parse config.toml")
 }
 
-fn load_spell_catalogue() -> SpellCatalogue {
-    let mut spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Couldn't open spell catalogue");
-    let spell_catalogue: String = spell_catalogue_file.get_as_text().into();
-    spell_catalogue_file.close();
-    serde_json::from_str(&spell_catalogue).expect("Couldn't parse spell catalogue")
+fn load_component_catalogue() -> ComponentCatalogue {
+    let mut component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Couldn't open component catalogue");
+    let component_catalogue: String = component_catalogue_file.get_as_text().into();
+    component_catalogue_file.close();
+    serde_json::from_str(&component_catalogue).expect("Couldn't parse component catalogue")
 }
 
-fn load_or_create_spell_catalogue() -> SpellCatalogue {
-    let option_spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ);
-    let mut spell_catalogue_file = match option_spell_catalogue_file {
+fn load_or_create_component_catalogue() -> ComponentCatalogue {
+    let option_component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ);
+    let mut component_catalogue_file = match option_component_catalogue_file {
         Some(file) => file,
         None => {
-            let mut spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Expected to be able to write to spell catalogue");
-            spell_catalogue_file.store_string("{}".into_godot());
-            spell_catalogue_file.close();
-            FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Expected to be able to read spell catalogue")
+            let mut component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Expected to be able to write to component catalogue");
+            component_catalogue_file.store_string("{}".into_godot());
+            component_catalogue_file.close();
+            FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Expected to be able to read component catalogue")
         }
     };
-    let mut spell_catalogue: String = spell_catalogue_file.get_as_text().into();
-    spell_catalogue_file.close();
-    if spell_catalogue.is_empty() {
-        spell_catalogue = "{\"spell_catalogue\": {}}".to_string();
+    let mut component_catalogue: String = component_catalogue_file.get_as_text().into();
+    component_catalogue_file.close();
+    if component_catalogue.is_empty() {
+        component_catalogue = "{\"component_catalogue\": {}}".to_string();
     }
-    serde_json::from_str(&spell_catalogue).expect("Couldn't parse spell catalogue")
+    serde_json::from_str(&component_catalogue).expect("Couldn't parse component catalogue")
 }
 
-fn store_spell_catalogue(spell_catalogue: SpellCatalogue) {
-    let mut spell_catalogue_file = FileAccess::open(SPELL_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Couldn't write to spell catalogue");
-    spell_catalogue_file.store_string(serde_json::to_string(&spell_catalogue).expect("Couldn't turn spell catalogue into JSON").into_godot());
-    spell_catalogue_file.close()
+fn store_component_catalogue(component_catalogue: ComponentCatalogue) {
+    let mut component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Couldn't write to component catalogue");
+    component_catalogue_file.store_string(serde_json::to_string(&component_catalogue).expect("Couldn't turn component catalogue into JSON").into_godot());
+    component_catalogue_file.close()
 }
 
 #[derive(Deserialize, Serialize)]
+struct ComponentCatalogue {
+    component_catalogue: HashMap<u64, Vec<Vec<u64>>>
+}
+
+enum SpellSave {
+    ComponentCatalogue(ComponentCatalogue),
+    Color(CustomColor),
+    Spells(SpellCatalogue)
+}
+
 struct SpellCatalogue {
-    spell_catalogue: HashMap<u64, Vec<Vec<u64>>>
+    spell_catalogue: HashMap<String, Vec<u64>>
 }
 
 struct MyExtension;
@@ -186,7 +199,7 @@ struct Spell {
     velocity: Vector3,
     time: Option<Gd<Time>>,
     start_time: Option<u64>,
-    spell_catalogue: Option<SpellCatalogue>,
+    component_catalogue: Option<ComponentCatalogue>,
     check_component_return_value: bool,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<Process>,
@@ -206,7 +219,7 @@ impl IArea3D for Spell {
             velocity: Vector3::new(0.0, 0.0, 0.0),
             time: None,
             start_time: None,
-            spell_catalogue: None,
+            component_catalogue: None,
             check_component_return_value: true,
             // Instructions are in u64, to represent f64 convert it to bits with f64::to_bits()
             ready_instructions: Vec::new(),
@@ -224,8 +237,8 @@ impl IArea3D for Spell {
             panic!("Time not available")
         }
 
-        // Get spell catalogue
-        self.spell_catalogue = Some(load_spell_catalogue());
+        // Get component catalogue
+        self.component_catalogue = Some(load_component_catalogue());
 
         // Creating visual representation of spell in godot
         let mut collision_shape = CollisionShape3D::new_alloc();
@@ -498,11 +511,11 @@ impl Spell {
                     let component_return = self.execute_component(instructions_iter)?;
                     // Checks if component return is an allowed parameter as it can't be known at compile time
                     if self.check_component_return_value {
-                        let spell_catalogue = match self.spell_catalogue {
-                            Some(ref self_spell_catalogue) => self_spell_catalogue,
-                            None => &load_spell_catalogue()
+                        let component_catalogue = match self.component_catalogue {
+                            Some(ref self_component_catalogue) => self_component_catalogue,
+                            None => &load_component_catalogue()
                         };
-                        let allowed_parameters_list: &Vec<Vec<u64>> = spell_catalogue.spell_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in spell catalogue")?;
+                        let allowed_parameters_list: &Vec<Vec<u64>> = component_catalogue.component_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in component catalogue")?;
                         Spell::check_if_parameter_allowed(&component_return, &allowed_parameters_list[parameter_number])?;
                     }
                     parameters.extend(component_return);
@@ -656,11 +669,11 @@ impl Spell {
     fn check_allowed_to_cast_component<'a>(&self, instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<(), &'static str> {
         let component_code = *instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
         let number_of_component_parameters = Spell::get_number_of_component_parameters(&component_code);
-        let spell_catalogue = match self.spell_catalogue {
-            Some(ref self_spell_catalogue) => self_spell_catalogue,
-            None => &load_spell_catalogue()
+        let component_catalogue = match self.component_catalogue {
+            Some(ref self_component_catalogue) => self_component_catalogue,
+            None => &load_component_catalogue()
         };
-        let allowed_parameters_list: &Vec<Vec<u64>> = spell_catalogue.spell_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in spell catalogue")?;
+        let allowed_parameters_list: &Vec<Vec<u64>> = component_catalogue.component_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in component catalogue")?;
 
         for index in 0..number_of_component_parameters {
             let parameter = match *instructions_iter.next().expect("Expected parameter") {
@@ -678,10 +691,7 @@ impl Spell {
         return Ok(())
     }
 
-    fn internal_check_allowed_to_cast(&self, instructions_json: GString) -> Result<(), &'static str> {
-        let instructions_string = instructions_json.to_string();
-        let instructions: Vec<u64> = serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions");
-
+    fn internal_check_allowed_to_cast(&self, instructions: Vec<u64>) -> Result<(), &'static str> {
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
@@ -693,8 +703,8 @@ impl Spell {
         return Ok(())
     }
 
-    fn add_component_to_spell_catalogue(component_code: u64, parameter_restrictions: Vec<Vec<&str>>) {
-        let mut spell_catalogue = load_or_create_spell_catalogue();
+    fn add_component_to_component_catalogue(component_code: u64, parameter_restrictions: Vec<Vec<&str>>) {
+        let mut component_catalogue = load_or_create_component_catalogue();
         let mut parsed_parameter_restrictions: Vec<Vec<u64>> = Vec::new();
         let mut index = 0;
         for parameter_allowed_values in parameter_restrictions {
@@ -724,17 +734,63 @@ impl Spell {
             index += 1;
         }
 
-        spell_catalogue.spell_catalogue.insert(component_code, parsed_parameter_restrictions);
-        store_spell_catalogue(spell_catalogue);
+        component_catalogue.component_catalogue.insert(component_code, parsed_parameter_restrictions);
+        store_component_catalogue(component_catalogue);
+    }
+
+    fn set_instructions_internally(&mut self, instructions: Vec<u64>) {
+        let mut section_instructions: Vec<u64> = Vec::new();
+        let mut last_section: u64 = 0;
+        let mut instructions_iter = instructions.iter();
+        while let Some(&instruction) = instructions_iter.next() {
+            match instruction {
+                102 => { // Number literal
+                    section_instructions.push(instruction);
+                    let something = *instructions_iter.next().expect("Expected number after literal opcode");
+                    section_instructions.push(something);
+                },
+                500..=501 => { // Section opcodes
+                    match last_section {
+                        0 => {},
+                        500 => self.ready_instructions = section_instructions.clone(),
+                        501 => {
+                            section_instructions.remove(0);
+                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
+                        },
+                        _ => panic!("Invalid section")
+                    }
+
+                    section_instructions.clear();
+                    last_section = instruction;
+                },
+                _ => section_instructions.push(instruction)
+            }
+        }
+
+        // match the end section
+        match last_section {
+            0 => {},
+            500 => self.ready_instructions = section_instructions.clone(),
+            501 => {
+                section_instructions.remove(0);
+                self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
+            },
+            _ => panic!("Invalid section")
+        }
+    }
+
+    fn translate_instructions(instructions_json: GString) -> Vec<u64> {
+        let instructions_string = instructions_json.to_string();
+        serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions")
     }
 }
 
 #[godot_api]
 impl Spell {
-    /// Checks instructions against the spell catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered.
+    /// Checks instructions against the component catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered.
     #[func]
     fn check_allowed_to_cast(&self, instructions_json: GString) -> Dictionary {
-        let (allowed_to_cast, denial_reason) = match self.internal_check_allowed_to_cast(instructions_json) {
+        let (allowed_to_cast, denial_reason) = match self.internal_check_allowed_to_cast(Spell::translate_instructions(instructions_json)) {
             Ok(_) => (true, ""),
             Err(error_message) => (false, error_message)
         };
@@ -742,8 +798,8 @@ impl Spell {
     }
 
     #[func]
-    fn reset_spell_catalogue() {
-        store_spell_catalogue(SpellCatalogue { spell_catalogue: HashMap::new() });
+    fn reset_component_catalogue() {
+        store_component_catalogue(ComponentCatalogue { component_catalogue: HashMap::new() });
     }
 
     #[func]
@@ -754,7 +810,7 @@ impl Spell {
         for _ in 0..number_of_parameters {
             parameter_restrictions.push(vec!["ANY"]);
         }
-        Spell::add_component_to_spell_catalogue(component_code, parameter_restrictions);
+        Spell::add_component_to_component_catalogue(component_code, parameter_restrictions);
     }
 
     #[func]
@@ -762,7 +818,7 @@ impl Spell {
         let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
         let string_parameter_restrictions = parameter_restrictions.to_string();
         let parameter_restrictions: Vec<Vec<&str>> = serde_json::from_str(&string_parameter_restrictions).expect("Couldn't parse JSON");
-        Spell::add_component_to_spell_catalogue(component_code, parameter_restrictions);
+        Spell::add_component_to_component_catalogue(component_code, parameter_restrictions);
     }
 
     #[func]
@@ -807,46 +863,7 @@ impl Spell {
     /// Takes instructions in the format of a json list which can be obtained from the output of the method `get_bytecode_instructions`. The instructions are called once the spell is put in the scene tree
     #[func]
     fn set_instructions(&mut self, instructions_json: GString) {
-        let instructions_string = instructions_json.to_string();
-        let instructions: Vec<u64> = serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions");
-        let mut section_instructions: Vec<u64> = vec![];
-        let mut last_section: u64 = 0;
-        let mut instructions_iter = instructions.iter();
-        while let Some(&instruction) = instructions_iter.next() {
-            match instruction {
-                102 => { // Number literal
-                    section_instructions.push(instruction);
-                    let something = *instructions_iter.next().expect("Expected number after literal opcode");
-                    section_instructions.push(something);
-                },
-                500..=501 => { // Section opcodes
-                    match last_section {
-                        0 => {},
-                        500 => self.ready_instructions = section_instructions.clone(),
-                        501 => {
-                            section_instructions.remove(0);
-                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
-                        },
-                        _ => panic!("Invalid section")
-                    }
-
-                    section_instructions.clear();
-                    last_section = instruction;
-                },
-                _ => section_instructions.push(instruction)
-            }
-        }
-
-        // match the end section
-        match last_section {
-            0 => {},
-            500 => self.ready_instructions = section_instructions.clone(),
-            501 => {
-                section_instructions.remove(0);
-                self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
-            },
-            _ => panic!("Invalid section")
-        }
+        self.set_instructions_internally(Spell::translate_instructions(instructions_json));
     }
 
     /// Takes in spell instructions in string format and returns a dictionary containing `instructions` (a json list), `successful` (a boolean) and `error_message` (a string)
