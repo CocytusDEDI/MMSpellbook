@@ -1,4 +1,6 @@
 use std::f64::consts::E;
+use std::collections::HashMap;
+use serde_json::{Value, json};
 
 use crate::{Spell, ENERGY_CONSIDERATION_LEVEL};
 
@@ -11,7 +13,7 @@ const FOCUS_LEVEL_TO_FOCUS: f64 = 0.05;
 
 #[derive(GodotClass)]
 #[class(base=CharacterBody3D)]
-struct MagicalEntity {
+pub struct MagicalEntity {
     base: Base<CharacterBody3D>,
     input: Gd<Input>,
     #[export]
@@ -25,6 +27,7 @@ struct MagicalEntity {
     max_control: f64,
     max_power: f64,
     power_left: f64, // Percentage
+    component_efficiency_levels: HashMap<u64, f64>
 }
 
 #[godot_api]
@@ -39,9 +42,10 @@ impl ICharacterBody3D for MagicalEntity {
             spells_cast: Vec::new(),
             energy_charged: 0.0,
             focus_level: 0.0,
-            max_control: 10.0,
-            max_power: 1.0,
+            max_control: 100.0,
+            max_power: 10.0,
             power_left: 1.0,
+            component_efficiency_levels: HashMap::new()
         }
     }
 }
@@ -122,7 +126,7 @@ impl MagicalEntity {
                 let mut spell_bind = spell.bind_mut();
                 spell_bind.set_energy(self.energy_charged);
                 spell_bind.set_color(Color { r: 0.24, g: 0.0, b: 0.59, a: 0.0 });
-                let can_cast = spell_bind.internal_check_allowed_to_cast(self.spell_loaded.clone());
+                let can_cast = Spell::internal_check_allowed_to_cast(self.spell_loaded.clone());
                 if let Ok(()) = can_cast {
                     spell_bind.set_instructions_internally(self.spell_loaded.clone());
                 }
@@ -135,6 +139,25 @@ impl MagicalEntity {
             }
 
             self.energy_charged = 0.0;
+        }
+    }
+
+    #[func]
+    fn set_efficiency_levels(&mut self, efficiency_levels_bytecode_json: GString) { // TODO: give efficiency_levels to spell
+        let json_string = efficiency_levels_bytecode_json.to_string();
+
+        match serde_json::from_str(&json_string) {
+            Ok(Value::Object(efficiency_levels_object)) => {
+                let mut temp_hashmap: HashMap<u64, f64> = HashMap::new();
+                for (key, value) in efficiency_levels_object {
+                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u64>(), value.as_f64()) {
+                        temp_hashmap.insert(parsed_key, parsed_value);
+                    }
+                }
+                self.component_efficiency_levels = temp_hashmap;
+            },
+            Ok(_) => panic!("Invalid Json: Must be object"),
+            Err(_) => panic!("Invalid Json: Incorrect format")
         }
     }
 

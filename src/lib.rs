@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use spelltranslator::get_component_num;
 use spelltranslator::parse_spell;
 use std::collections::HashMap;
+use std::f32::consts::PI;
 use std::fs;
 use toml;
 
@@ -41,7 +42,10 @@ const ENERGY_LOSE_RATE: f64 = 0.05;
 // Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
 const SPELL_TRANSPARENCY: f32 = 0.9;
 
-const ENERGY_TO_RADIUS_CONSTANT: f64 = 100.0;
+const RADIUS_UPDATE_RATE: usize = 7;
+
+const DEFAULT_DENSITY: f64 = 1.0;
+const DEFAULT_DENSITY_RANGE: f64 = 0.5;
 
 #[derive(Serialize, Deserialize)]
 struct CustomColor {
@@ -120,6 +124,7 @@ struct ComponentCatalogue {
     component_catalogue: HashMap<u64, Vec<Vec<u64>>>
 }
 
+// TODO: Add spell saves & move to magical_entity
 enum SpellSave {
     ComponentCatalogue(ComponentCatalogue),
     Color(CustomColor),
@@ -168,22 +173,22 @@ lazy_static! {
 
 #[derive(Clone)]
 struct Process {
-    counter: f64,
-    frequency: f64,
+    counter: usize,
+    frequency: usize,
     instructions: Vec<u64>
 }
 
 impl Process {
-    fn new(frequency: f64, instructions: Vec<u64>) -> Self {
-        Process { counter: 0.0, frequency, instructions}
+    fn new(frequency: usize, instructions: Vec<u64>) -> Self {
+        Process { counter: 0, frequency, instructions}
     }
 
     fn increment(&mut self) {
-        self.counter = (self.counter + 1.0) % self.frequency
+        self.counter = (self.counter + 1) % self.frequency
     }
 
     fn should_run(&self) -> bool {
-        self.counter == 0.0
+        self.counter == 0
     }
 }
 
@@ -193,6 +198,9 @@ struct Spell {
     base: Base<Area3D>,
     energy: f64,
     color: Color,
+    counter: usize,
+    density: f64,
+    density_range: f64, // TODO: Allow players to set their own density within their density range
     energy_lose_rate: f64,
     form_set: bool,
     config: Config,
@@ -213,6 +221,9 @@ impl IArea3D for Spell {
             base,
             energy: 0.0,
             color: Color::from_rgba(DEFAULT_COLOR.r, DEFAULT_COLOR.g, DEFAULT_COLOR.b, SPELL_TRANSPARENCY),
+            counter: 0,
+            density: DEFAULT_DENSITY,
+            density_range: DEFAULT_DENSITY_RANGE,
             energy_lose_rate: ENERGY_LOSE_RATE,
             form_set: false,
             config: load_string_config().to_config(),
@@ -237,6 +248,10 @@ impl IArea3D for Spell {
             panic!("Time not available")
         }
 
+        if self.energy <= 0.0 {
+            self.free_spell();
+        }
+
         // Get component catalogue
         self.component_catalogue = Some(load_component_catalogue());
 
@@ -245,7 +260,7 @@ impl IArea3D for Spell {
         collision_shape.set_name("spell_collision_shape".into_godot());
         let mut shape = SphereShape3D::new_gd();
         shape.set_name("spell_sphere_shape".into_godot());
-        let radius = Spell::energy_to_radius(self.energy);
+        let radius = self.get_radius();
         shape.set_radius(radius);
         collision_shape.set_shape(shape.upcast::<Shape3D>());
         self.base_mut().add_child(collision_shape.upcast::<Node>());
@@ -266,8 +281,15 @@ impl IArea3D for Spell {
         csg_sphere.set_material(csg_material);
         self.base_mut().add_child(csg_sphere.upcast::<Node>());
 
+        let spell_result = {
+            let instructions = std::mem::take(&mut self.ready_instructions);
+            let result = self.spell_virtual_machine(&instructions);
+            self.ready_instructions = instructions;
+            result
+        };
+
         // Handle instructions, throws error if it doesn't have enough energy to cast a component
-        match self.spell_virtual_machine(&self.ready_instructions.clone()) {
+        match spell_result {
             Ok(()) => {},
             Err(_) => self.free_spell()
         }
@@ -285,9 +307,10 @@ impl IArea3D for Spell {
         let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
         self.base_mut().set_position(new_position);
 
-        let mut physics_processes = self.process_instructions.clone();
+        {
+        let mut instructions = std::mem::take(&mut self.process_instructions);
 
-        for process in physics_processes.iter_mut() {
+        for process in instructions.iter_mut() {
             // Handle instructions, frees the spell if it fails
 
             process.increment();
@@ -305,14 +328,15 @@ impl IArea3D for Spell {
             }
         }
 
-        self.process_instructions = physics_processes;
+        self.process_instructions = instructions;
+        }
 
         // Handle energy lose
         self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
 
-        if !self.form_set {
+        if !self.form_set && self.counter == 0 {
             // Radius changing of collision shape
-            let radius = Spell::energy_to_radius(self.energy);
+            let radius = self.get_radius();
 
             let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
             let shape = collsion_shape.get_shape().unwrap();
@@ -324,10 +348,8 @@ impl IArea3D for Spell {
             csg_sphere.set_radius(radius);
         }
 
-        // Check if spell should be deleted due to lack of energy
-        if self.energy < ENERGY_CONSIDERATION_LEVEL {
-            self.free_spell();
-        }
+        self.counter = (self.counter + 1) % RADIUS_UPDATE_RATE;
+
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
             self.free_spell();
@@ -586,8 +608,12 @@ impl Spell {
         self.base_mut().emit_signal("component_cast".into(), &[Variant::from(component_code), Variant::from(efficiency_increase)]);
     }
 
-    fn energy_to_radius(energy: f64) -> f32 {
-        (energy / ENERGY_TO_RADIUS_CONSTANT) as f32
+    fn get_radius(&self) -> f32 {
+        ((3.0 * self.get_volume()) / (4.0 * PI)).powf(1.0 / 3.0)
+    }
+
+    fn get_volume(&self) -> f32 {
+        (self.energy / self.density) as f32
     }
 
     fn get_number_of_component_parameters(component_code: &u64) -> usize {
@@ -666,13 +692,10 @@ impl Spell {
         return Err("Parameter not allowed")
     }
 
-    fn check_allowed_to_cast_component<'a>(&self, instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<(), &'static str> {
+    fn check_allowed_to_cast_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<(), &'static str> {
         let component_code = *instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
         let number_of_component_parameters = Spell::get_number_of_component_parameters(&component_code);
-        let component_catalogue = match self.component_catalogue {
-            Some(ref self_component_catalogue) => self_component_catalogue,
-            None => &load_component_catalogue()
-        };
+        let component_catalogue = &load_component_catalogue();
         let allowed_parameters_list: &Vec<Vec<u64>> = component_catalogue.component_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in component catalogue")?;
 
         for index in 0..number_of_component_parameters {
@@ -691,12 +714,12 @@ impl Spell {
         return Ok(())
     }
 
-    fn internal_check_allowed_to_cast(&self, instructions: Vec<u64>) -> Result<(), &'static str> {
+    fn internal_check_allowed_to_cast(instructions: Vec<u64>) -> Result<(), &'static str> {
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
                 102 => _ = instructions_iter.next(),
-                103 => _ = self.check_allowed_to_cast_component(&mut instructions_iter)?,
+                103 => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter)?,
                 _ => {}
             }
         }
@@ -755,7 +778,7 @@ impl Spell {
                         500 => self.ready_instructions = section_instructions.clone(),
                         501 => {
                             section_instructions.remove(0);
-                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
+                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
                         },
                         _ => panic!("Invalid section")
                     }
@@ -773,7 +796,7 @@ impl Spell {
             500 => self.ready_instructions = section_instructions.clone(),
             501 => {
                 section_instructions.remove(0);
-                self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)), section_instructions.clone()))
+                self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
             },
             _ => panic!("Invalid section")
         }
@@ -789,8 +812,8 @@ impl Spell {
 impl Spell {
     /// Checks instructions against the component catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered.
     #[func]
-    fn check_allowed_to_cast(&self, instructions_json: GString) -> Dictionary {
-        let (allowed_to_cast, denial_reason) = match self.internal_check_allowed_to_cast(Spell::translate_instructions(instructions_json)) {
+    fn check_allowed_to_cast(instructions_json: GString) -> Dictionary {
+        let (allowed_to_cast, denial_reason) = match Spell::internal_check_allowed_to_cast(Spell::translate_instructions(instructions_json)) {
             Ok(_) => (true, ""),
             Err(error_message) => (false, error_message)
         };
