@@ -46,43 +46,42 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let trimmed_spell_code = spell_code.trim();
     for line in trimmed_spell_code.lines() {
         let trimmed_line = line.trim();
-        if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphabetic() || character == '_' || character.is_numeric() || character == ' ') {
-            match trimmed_line.trim_end_matches(':') {
-                ON_READY_NAME => instructions.push(500),
-                PROCESS_NAME => {
+        if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphanumeric() || character == '_' || character == ' ') {
+            match trimmed_line.trim_end_matches(':').split_whitespace().collect::<Vec<&str>>()[..] {
+                [ON_READY_NAME] => instructions.push(500),
+                [PROCESS_NAME] => {
                     instructions.extend(vec![501, 102, f64::to_bits(1.0)]);
                 },
-                lines => match lines.split_whitespace().collect::<Vec<&str>>()[..] {
-                    ["repeat", "every", num] => {
-                        instructions.extend(vec![501, 102]);
-                        instructions.push(match num.parse::<u64>() {
-                            Ok(num) => f64::to_bits(num as f64),
-                            Err(_) => return Err("Invalid value found after keyword \"every\"")
-                        })
-                    }
-                    _ => return Err("Invalid section name")
-                }
+                [PROCESS_NAME, "every", num] => {
+                    instructions.extend(vec![501, 102]);
+                    instructions.push(match num.parse::<u64>() {
+                        Ok(num) => f64::to_bits(num as f64),
+                        Err(_) => return Err("Invalid value found after keyword \"every\"")
+                    })
+                },
+                _ => return Err("Invalid section name")
             };
             in_section = true;
         } else {
-            if in_section { // If in section, parse code
-                if trimmed_line.ends_with(")") { // Checking to see if component
-                    instructions.extend(parse_component(trimmed_line)?);
-                } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
-                    instructions.push(400); // Indicates if statement
-                    instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
-                    instructions.push(0); // Indicates end of scope for logic
-                    expected_closing_brackets += 1;
-                } else if expected_closing_brackets > 0 && trimmed_line == "}" {
-                    instructions.push(0);
-                    expected_closing_brackets -= 1;
-                } else if trimmed_line == "" {
-                    continue
-                } else {
-                    return Err("Not acceptable statement")
-                }
-            } else {
+            if ! in_section {
                 return Err("Must begin with section statement");
+            }
+            
+            // If in section, parse code
+            if trimmed_line.ends_with(")") { // Checking to see if component
+                instructions.extend(parse_component(trimmed_line)?);
+            } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
+                instructions.push(400); // Indicates if statement
+                instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
+                instructions.push(0); // Indicates end of scope for logic
+                expected_closing_brackets += 1;
+            } else if expected_closing_brackets > 0 && trimmed_line == "}" {
+                instructions.push(0);
+                expected_closing_brackets -= 1;
+            } else if trimmed_line == "" {
+                continue
+            } else {
+                return Err("Not acceptable statement")
             }
         }
     }
@@ -336,29 +335,29 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 rpn_stack.extend(test_execute_component(&mut logic_iter)?);
             }
             200 => { // And statement
-                let bool_two = rpn_stack.pop().expect("Expected value to compair");
-                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                let bool_two = rpn_stack.pop().expect("Expected value to compare");
+                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                 rpn_stack.push(boolean_logic::and(bool_one, bool_two)?);
             },
             201 => { // Or statement
-                let bool_two = rpn_stack.pop().expect("Expected value to compair");
-                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                let bool_two = rpn_stack.pop().expect("Expected value to compare");
+                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                 rpn_stack.push(boolean_logic::or(bool_one, bool_two)?);
             },
             202 => { // Not statement
-                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                 rpn_stack.push(boolean_logic::not(bool_one)?);
             },
             203 => { // Xor statement
-                let bool_two = rpn_stack.pop().expect("Expected value to compair");
-                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                let bool_two = rpn_stack.pop().expect("Expected value to compare");
+                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                 rpn_stack.push(boolean_logic::xor(bool_one, bool_two)?);
             },
             300 => { // equals
-                let argument_two = rpn_stack.pop().expect("Expected value to compair");
-                let opcode_or_bool = rpn_stack.pop().expect("Expected value to compair");
+                let argument_two = rpn_stack.pop().expect("Expected value to compare");
+                let opcode_or_bool = rpn_stack.pop().expect("Expected value to compare");
                 if opcode_or_bool == 102 {
-                    let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                    let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                     let _ = rpn_stack.pop().expect("Expected number literal opcode");
                     if argument_one == f64::from_bits(argument_two) {
                         rpn_stack.push(100);
@@ -376,9 +375,9 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 }
             },
             301 => { // greater than
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                 if argument_one > argument_two {
                     rpn_stack.push(100);
@@ -387,9 +386,9 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 }
             },
             302 => { // lesser than
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                 if argument_one < argument_two {
                     rpn_stack.push(100);
@@ -398,37 +397,37 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 }
             },
             600 => { // multiply
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one * argument_two)]);
             }
             601 => { // divide
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one / argument_two)]);
             }
             602 => { // add
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one + argument_two)]);
             }
             603 => { // subtract
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one - argument_two)]);
             }
             604 => { // power
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one.powf(argument_two))]);
             }
