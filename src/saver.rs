@@ -72,6 +72,12 @@ impl SpellCatalogue {
         spell_catalogue_file.store_string(serde_json::to_string(&spell_catalogue).expect("Couldn't turn spell catalogue into JSON").into_godot());
         spell_catalogue_file.close()
     }
+
+    pub fn save_spell(spell_name: String, spell: String) {
+        let mut spell_catalogue = SpellCatalogue::get_or_create_spell_catalogue();
+        spell_catalogue.spell_catalogue.insert(spell_name, spell);
+        SpellCatalogue::store_spell_catalogue(spell_catalogue);
+    }
 }
 
 impl PlayerConfig {

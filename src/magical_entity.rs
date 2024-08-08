@@ -2,7 +2,7 @@ use std::f64::consts::E;
 use std::collections::HashMap;
 use serde_json::Value;
 
-use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::PlayerConfig, saver::SpellCatalogue};
+use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::PlayerConfig, saver::SpellCatalogue, parse_spell};
 
 // Godot imports
 use godot::prelude::*;
@@ -21,7 +21,7 @@ pub struct MagicalEntity {
     health: f64,
     #[export]
     shield: f64,
-    spell_loaded: Vec<u64>,
+    loaded_spell: Vec<u64>,
     spells_cast: Vec<Gd<Spell>>,
     energy_charged: f64,
     focus_level: f64,
@@ -40,7 +40,7 @@ impl ICharacterBody3D for MagicalEntity {
             default_spell_color: PlayerConfig::get_or_create_player_config().color.into_spell_color(),
             health: 0.0,
             shield: 0.0,
-            spell_loaded: Vec::new(),
+            loaded_spell: Vec::new(),
             spells_cast: Vec::new(),
             energy_charged: 0.0,
             focus_level: 0.0,
@@ -131,7 +131,7 @@ impl MagicalEntity {
             let mut spell = Spell::new_alloc();
             spell.set_position(self.base().get_global_position());
 
-            if Spell::internal_check_allowed_to_cast(self.spell_loaded.clone()).is_err() {
+            if Spell::internal_check_allowed_to_cast(self.loaded_spell.clone()).is_err() {
                 return
             }
 
@@ -142,7 +142,7 @@ impl MagicalEntity {
             spell_bind.set_color(self.default_spell_color);
             spell_bind.connect_player(self.to_gd().upcast());
             spell_bind.internal_set_efficiency_levels(self.component_efficiency_levels.clone());
-            spell_bind.set_instructions_internally(self.spell_loaded.clone());
+            spell_bind.set_instructions_internally(self.loaded_spell.clone());
             }
 
             self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
@@ -173,6 +173,52 @@ impl MagicalEntity {
 
     #[func]
     fn set_instructions(&mut self, instructions: GString) {
-        self.spell_loaded = Spell::translate_instructions(instructions)
+        self.loaded_spell = Spell::translate_instructions(instructions)
+    }
+
+    #[func]
+    fn get_spell_names() -> Array<GString> {
+        let mut array = Array::new();
+        for spell_name in SpellCatalogue::get_or_create_spell_catalogue().spell_catalogue.keys() {
+            array.push(spell_name.clone().into_godot());
+        }
+        return array
+    }
+
+    /// Returns true if the spell was loaded successfully and returns false if not
+    #[func]
+    fn load_spell(&mut self, name: GString) -> bool {
+        let spell_catalogue = SpellCatalogue::get_or_create_spell_catalogue().spell_catalogue;
+        let spell_option = spell_catalogue.get(&name.to_string());
+        let spell = match spell_option {
+            Some(spell) => spell,
+            None => return false
+        };
+
+        self.loaded_spell = match parse_spell(spell) {
+            Ok(instr) => instr,
+            Err(_) => return false
+        };
+
+        return true
+    }
+
+    #[func]
+    fn get_spell(&mut self, name: GString) -> Dictionary {
+        let spell_catalogue = SpellCatalogue::get_or_create_spell_catalogue().spell_catalogue;
+        match spell_catalogue.get(&name.to_string()) {
+            Some(spell) => dict! {"spell": spell.clone(), "successful": true},
+            None => dict! {"spell": String::new(), "successful": false}
+        }
+    }
+
+    #[func]
+    fn save_spell(spell_name: GString, spell: GString) {
+        SpellCatalogue::save_spell(spell_name.into(), spell.into());
+    }
+
+    #[func]
+    fn reset_spell_catalogue() {
+        SpellCatalogue::store_spell_catalogue(SpellCatalogue { spell_catalogue: HashMap::new() });
     }
 }
