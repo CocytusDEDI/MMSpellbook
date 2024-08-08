@@ -1,8 +1,8 @@
 use std::f64::consts::E;
 use std::collections::HashMap;
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use crate::{Spell, ENERGY_CONSIDERATION_LEVEL};
+use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::PlayerConfig, saver::SpellCatalogue};
 
 // Godot imports
 use godot::prelude::*;
@@ -16,6 +16,7 @@ const FOCUS_LEVEL_TO_FOCUS: f64 = 0.05;
 pub struct MagicalEntity {
     base: Base<CharacterBody3D>,
     input: Gd<Input>,
+    default_spell_color: Color,
     #[export]
     health: f64,
     #[export]
@@ -36,6 +37,7 @@ impl ICharacterBody3D for MagicalEntity {
         Self {
             base,
             input: Input::singleton(),
+            default_spell_color: PlayerConfig::get_or_create_player_config().color.into_spell_color(),
             health: 0.0,
             shield: 0.0,
             spell_loaded: Vec::new(),
@@ -66,6 +68,12 @@ impl MagicalEntity {
                 self.perish();
             }
         }
+    }
+
+    #[func]
+    fn update_component_efficiency(&mut self, component: u64, efficiency_increase: f64) {
+        let current_efficiency_level = self.component_efficiency_levels.get(&component).unwrap_or(&1.0);
+        self.component_efficiency_levels.insert(component, current_efficiency_level + efficiency_increase);
     }
 
     #[func]
@@ -104,46 +112,48 @@ impl MagicalEntity {
 
     #[func]
     fn handle_spell_casting(&mut self, delta: f64) {
+        let control = self.get_control();
         if self.input.is_action_pressed("cast".into()) {
             let extra_energy = self.get_power() * delta;
-            if self.get_control() >= self.energy_charged + extra_energy {
+            if control >= self.energy_charged + extra_energy {
                 self.energy_charged += extra_energy;
             } else {
-                self.energy_charged = self.get_control();
+                self.energy_charged = control;
             }
         } else if self.input.is_action_just_released("cast".into()) {
             if self.energy_charged < ENERGY_CONSIDERATION_LEVEL {
                 return
             }
-            if self.get_control() < self.energy_charged {
-                self.energy_charged = self.get_control();
+            if control < self.energy_charged {
+                self.energy_charged = control;
             }
 
             let mut spell = Spell::new_alloc();
             spell.set_position(self.base().get_global_position());
 
-            let can_cast = {
-                let mut spell_bind = spell.bind_mut();
-                spell_bind.set_energy(self.energy_charged);
-                spell_bind.set_color(Color { r: 0.24, g: 0.0, b: 0.59, a: 0.0 });
-                let can_cast = Spell::internal_check_allowed_to_cast(self.spell_loaded.clone());
-                if let Ok(()) = can_cast {
-                    spell_bind.set_instructions_internally(self.spell_loaded.clone());
-                }
-                can_cast
-            };
-
-            if can_cast.is_ok() {
-                self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
-                self.spells_cast.push(spell);
+            if Spell::internal_check_allowed_to_cast(self.spell_loaded.clone()).is_err() {
+                return
             }
+
+            {
+            let mut spell_bind = spell.bind_mut();
+
+            spell_bind.set_energy(self.energy_charged);
+            spell_bind.set_color(self.default_spell_color);
+            spell_bind.connect_player(self.to_gd().upcast());
+            spell_bind.internal_set_efficiency_levels(self.component_efficiency_levels.clone());
+            spell_bind.set_instructions_internally(self.spell_loaded.clone());
+            }
+
+            self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
+            self.spells_cast.push(spell);
 
             self.energy_charged = 0.0;
         }
     }
 
     #[func]
-    fn set_efficiency_levels(&mut self, efficiency_levels_bytecode_json: GString) { // TODO: give efficiency_levels to spell
+    fn set_efficiency_levels(&mut self, efficiency_levels_bytecode_json: GString) {
         let json_string = efficiency_levels_bytecode_json.to_string();
 
         match serde_json::from_str(&json_string) {

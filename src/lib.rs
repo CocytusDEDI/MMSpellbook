@@ -1,12 +1,8 @@
 use lazy_static::lazy_static;
 use serde_json::{Value, json};
 use serde::{Deserialize, Serialize};
-use spelltranslator::get_component_num;
-use spelltranslator::parse_spell;
 use std::collections::HashMap;
 use std::f32::consts::PI;
-use std::fs;
-use toml;
 
 // Godot imports
 use godot::prelude::*;
@@ -20,15 +16,14 @@ use godot::classes::Shape3D;
 use godot::classes::StandardMaterial3D;
 use godot::classes::base_material_3d::Transparency;
 use godot::classes::base_material_3d::Feature;
-use godot::classes::file_access;
-use godot::classes::FileAccess;
 
 mod spelltranslator;
 mod component_functions;
 mod magical_entity;
+mod saver;
 
-const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
-const COMPONENT_CATALOGUE_PATH: &'static str = "user://component_catalogue.json";
+use saver::*;
+use spelltranslator::*;
 
 // When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
@@ -54,86 +49,13 @@ struct CustomColor {
     b: f32
 }
 
+impl CustomColor {
+    pub fn into_spell_color(self) -> Color {
+        Color { r: self.r, g: self.g, b: self.b, a: SPELL_TRANSPARENCY }
+    }
+}
+
 const DEFAULT_COLOR: CustomColor = CustomColor { r: 1.0, g: 1.0, b: 1.0 };
-
-#[derive(Deserialize)]
-struct StringConfig {
-    #[serde(default)]
-    forms: HashMap<String, FormConfig>
-}
-
-#[derive(Deserialize, Clone)]
-struct FormConfig {
-    path: String,
-    energy_required: f64
-}
-
-impl StringConfig {
-    fn to_config(&self) -> Config {
-        let mut config = Config {forms: HashMap::new()};
-        for (key, value) in &self.forms {
-            config.forms.insert(key.parse().expect("Couldn't parse config.toml forms section"), value.clone());
-        }
-        return config
-    }
-}
-
-struct Config {
-    forms: HashMap<u64, FormConfig>
-}
-
-fn load_string_config() -> StringConfig {
-    let config_file = fs::read_to_string(SPELL_CONFIG_PATH).unwrap_or_default();
-    toml::de::from_str::<StringConfig>(&config_file).expect("Couldn't parse config.toml")
-}
-
-fn load_component_catalogue() -> ComponentCatalogue {
-    let mut component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Couldn't open component catalogue");
-    let component_catalogue: String = component_catalogue_file.get_as_text().into();
-    component_catalogue_file.close();
-    serde_json::from_str(&component_catalogue).expect("Couldn't parse component catalogue")
-}
-
-fn load_or_create_component_catalogue() -> ComponentCatalogue {
-    let option_component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ);
-    let mut component_catalogue_file = match option_component_catalogue_file {
-        Some(file) => file,
-        None => {
-            let mut component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Expected to be able to write to component catalogue");
-            component_catalogue_file.store_string("{}".into_godot());
-            component_catalogue_file.close();
-            FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::READ).expect("Expected to be able to read component catalogue")
-        }
-    };
-    let mut component_catalogue: String = component_catalogue_file.get_as_text().into();
-    component_catalogue_file.close();
-    if component_catalogue.is_empty() {
-        component_catalogue = "{\"component_catalogue\": {}}".to_string();
-    }
-    serde_json::from_str(&component_catalogue).expect("Couldn't parse component catalogue")
-}
-
-fn store_component_catalogue(component_catalogue: ComponentCatalogue) {
-    let mut component_catalogue_file = FileAccess::open(COMPONENT_CATALOGUE_PATH.into_godot(), file_access::ModeFlags::WRITE).expect("Couldn't write to component catalogue");
-    component_catalogue_file.store_string(serde_json::to_string(&component_catalogue).expect("Couldn't turn component catalogue into JSON").into_godot());
-    component_catalogue_file.close()
-}
-
-#[derive(Deserialize, Serialize)]
-struct ComponentCatalogue {
-    component_catalogue: HashMap<u64, Vec<Vec<u64>>>
-}
-
-// TODO: Add spell saves & move to magical_entity
-enum SpellSave {
-    ComponentCatalogue(ComponentCatalogue),
-    Color(CustomColor),
-    Spells(SpellCatalogue)
-}
-
-struct SpellCatalogue {
-    spell_catalogue: HashMap<String, Vec<u64>>
-}
 
 struct MyExtension;
 
@@ -171,7 +93,6 @@ lazy_static! {
     };
 }
 
-#[derive(Clone)]
 struct Process {
     counter: usize,
     frequency: usize,
@@ -220,13 +141,13 @@ impl IArea3D for Spell {
         Self {
             base,
             energy: 0.0,
-            color: Color::from_rgba(DEFAULT_COLOR.r, DEFAULT_COLOR.g, DEFAULT_COLOR.b, SPELL_TRANSPARENCY),
+            color: DEFAULT_COLOR.into_spell_color(),
             counter: 0,
             density: DEFAULT_DENSITY,
             density_range: DEFAULT_DENSITY_RANGE,
             energy_lose_rate: ENERGY_LOSE_RATE,
             form_set: false,
-            config: load_string_config().to_config(),
+            config: Config::get_config(),
             velocity: Vector3::new(0.0, 0.0, 0.0),
             time: None,
             start_time: None,
@@ -253,7 +174,7 @@ impl IArea3D for Spell {
         }
 
         // Get component catalogue
-        self.component_catalogue = Some(load_component_catalogue());
+        self.component_catalogue = Some(ComponentCatalogue::get_component_catalogue());
 
         // Creating visual representation of spell in godot
         let mut collision_shape = CollisionShape3D::new_alloc();
@@ -535,7 +456,7 @@ impl Spell {
                     if self.check_component_return_value {
                         let component_catalogue = match self.component_catalogue {
                             Some(ref self_component_catalogue) => self_component_catalogue,
-                            None => &load_component_catalogue()
+                            None => &ComponentCatalogue::get_component_catalogue()
                         };
                         let allowed_parameters_list: &Vec<Vec<u64>> = component_catalogue.component_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in component catalogue")?;
                         Spell::check_if_parameter_allowed(&component_return, &allowed_parameters_list[parameter_number])?;
@@ -575,7 +496,6 @@ impl Spell {
                 let base_energy = f64::from_bits(*base_energy_bits.first().expect("Expected energy useage return"));
                 // Getting efficiency from component_efficiency_level
                 let efficiency = component_efficiency_level / (component_efficiency_level + EFFICIENCY_INCREASE_RATE);
-
                 let energy_needed = base_energy / efficiency;
                 if self.energy >= energy_needed {
                     self.energy -= energy_needed;
@@ -695,7 +615,7 @@ impl Spell {
     fn check_allowed_to_cast_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<(), &'static str> {
         let component_code = *instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
         let number_of_component_parameters = Spell::get_number_of_component_parameters(&component_code);
-        let component_catalogue = &load_component_catalogue();
+        let component_catalogue = &ComponentCatalogue::get_component_catalogue();
         let allowed_parameters_list: &Vec<Vec<u64>> = component_catalogue.component_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in component catalogue")?;
 
         for index in 0..number_of_component_parameters {
@@ -727,7 +647,7 @@ impl Spell {
     }
 
     fn add_component_to_component_catalogue(component_code: u64, parameter_restrictions: Vec<Vec<&str>>) {
-        let mut component_catalogue = load_or_create_component_catalogue();
+        let mut component_catalogue = ComponentCatalogue::get_or_create_component_catalogue();
         let mut parsed_parameter_restrictions: Vec<Vec<u64>> = Vec::new();
         let mut index = 0;
         for parameter_allowed_values in parameter_restrictions {
@@ -758,9 +678,10 @@ impl Spell {
         }
 
         component_catalogue.component_catalogue.insert(component_code, parsed_parameter_restrictions);
-        store_component_catalogue(component_catalogue);
+        ComponentCatalogue::store_component_catalogue(component_catalogue);
     }
 
+    /// Gives a spell instance its instructions, used to avoid json translation
     fn set_instructions_internally(&mut self, instructions: Vec<u64>) {
         let mut section_instructions: Vec<u64> = Vec::new();
         let mut last_section: u64 = 0;
@@ -806,6 +727,10 @@ impl Spell {
         let instructions_string = instructions_json.to_string();
         serde_json::from_str(&instructions_string).expect("Couldn't parse json instructions")
     }
+
+    fn internal_set_efficiency_levels(&mut self, efficiency_levels: HashMap<u64, f64>) {
+        self.component_efficiency_levels = efficiency_levels;
+    }
 }
 
 #[godot_api]
@@ -822,7 +747,7 @@ impl Spell {
 
     #[func]
     fn reset_component_catalogue() {
-        store_component_catalogue(ComponentCatalogue { component_catalogue: HashMap::new() });
+        ComponentCatalogue::store_component_catalogue(ComponentCatalogue { component_catalogue: HashMap::new() });
     }
 
     #[func]
