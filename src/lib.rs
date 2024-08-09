@@ -636,10 +636,17 @@ impl Spell {
 
     fn internal_check_allowed_to_cast(instructions: Vec<u64>) -> Result<(), &'static str> {
         let mut instructions_iter = instructions.iter();
+        let mut section: Option<u64> = None;
         while let Some(&bits) = instructions_iter.next() {
+            if let Some(502) = section { // ignore all checks in metadata section
+                continue;
+            }
             match bits {
                 102 => _ = instructions_iter.next(),
                 103 => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter)?,
+                500..=599 => {
+                    section = Some(bits)
+                }
                 _ => {}
             }
         }
