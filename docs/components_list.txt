@@ -13,10 +13,10 @@ power:
 
 ## Planned (but could change):
 utility:
-anchor() requires {give_velocity}
+anchor()
 
 logic:
 
 power:
-disintegrate()
+damage()
 
