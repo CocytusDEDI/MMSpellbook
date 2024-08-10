@@ -708,6 +708,9 @@ impl Spell {
                             section_instructions.remove(0);
                             self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
                         },
+                        502 => {
+                            self.set_meta_data(section_instructions.clone())
+                        },
                         _ => panic!("Invalid section")
                     }
 
@@ -726,8 +729,37 @@ impl Spell {
                 section_instructions.remove(0);
                 self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
             },
+            502 => {
+                self.set_meta_data(section_instructions.clone())
+            },
             _ => panic!("Invalid section")
         }
+    }
+
+    fn set_meta_data(&mut self, equations: Vec<u64>) {
+        // TODO: code
+        let mut codes = equations.into_iter();
+        while let Some(code) = codes.next() {
+            match code {
+                0 => { // set colour
+                    match match vec![codes.next(), codes.next(), codes.next()].into_iter().collect::<Option<Vec<u64>>>(){ // transpose vec of option into option of vec
+                        Some(n) => n,
+                        None => panic!("Invalid data")
+                    }.into_iter()
+                    .map(|x| f64::from_bits(x) as f32)
+                    .collect::<Vec<f32>>()[..] {
+                        [c, d, e] => self.color = Color{r: c, g: d, b: e, a: SPELL_TRANSPARENCY},
+                        _ => panic!("Invalid data")
+                    }
+                },
+                1 => { // set destroy_when_done
+                    codes.next();
+                    panic!("Implementation not specified for destroy_when_done")
+                },
+                _ => {}
+            }
+        }
+
     }
 
     fn translate_instructions(instructions_json: GString) -> Vec<u64> {

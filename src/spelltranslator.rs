@@ -1,11 +1,13 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
+use core::num::ParseFloatError;
 use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic};
 
 const FUNCTION_NAME_SIZE: usize = 30;
 
 const ON_READY_NAME: &'static str = "when_created";
 const PROCESS_NAME: &'static str = "repeat";
+const META_DATA_NAME: &'static str = "about";
 
 fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
     let mut padded_name = [None; FUNCTION_NAME_SIZE];
@@ -41,7 +43,7 @@ pub fn get_component_num(component_name: &str) -> Option<u64> {
 
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
-    let mut in_section = false;
+    let mut in_section = None;
     let mut expected_closing_brackets: usize = 0;
     let trimmed_spell_code = spell_code.trim();
     for line in trimmed_spell_code.lines() {
@@ -59,16 +61,17 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                         Err(_) => return Err("Invalid value found after keyword \"every\"")
                     })
                 },
+                [META_DATA_NAME] => instructions.push(502),
                 _ => return Err("Invalid section name")
             };
-            in_section = true;
+            in_section = instructions.last().copied();
         } else {
-            if ! in_section {
+            if let None = in_section {
                 return Err("Must begin with section statement");
             }
             
             // If in section, parse code
-            if trimmed_line.ends_with(")") { // Checking to see if component
+            if trimmed_line.ends_with(")") && Some(502) != in_section { // Checking to see if component
                 instructions.extend(parse_component(trimmed_line)?);
             } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
                 instructions.push(400); // Indicates if statement
@@ -80,6 +83,8 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                 expected_closing_brackets -= 1;
             } else if trimmed_line == "" {
                 continue
+            } else if trimmed_line.contains('=') && Some(502) == in_section { // Indicates an assignment of metadata
+                instructions.extend(parse_equation(trimmed_line)?)
             } else {
                 return Err("Not acceptable statement")
             }
@@ -659,6 +664,53 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
     }
 }
 
+fn parse_equation(equation: &str) -> Result<Vec<u64>, &'static str>{
+    let (name, value) = match equation.split_once('='){
+        Some(n) => n,
+        None => return Err("equation not valid")
+    };
+    
+    match (name.trim(), value.trim()) { // because no map for tuples in rust
+        ("colour", values) | ("color", values) => {
+            // returns used to sidestep borrowing rules
+            let numbers = match match match match values.strip_prefix('[')
+            .and_then(|x| x.strip_suffix(']')) {
+                Some(x) => x,
+                None => {
+                    return Err("Invalid parameters: should be a list and have \"[\" \"]\"")
+                }
+            }.split(',')
+            .map(str::trim)
+            .map(str::parse::<f32>)
+            .collect::<Result<Vec<f32>, ParseFloatError>>() {
+                Ok(n) => n,
+                Err(_) => {
+                    return Err("Invalid parameters: should be floating point numbers(with decimal point)")
+                }
+            }[..] {
+                [a, b, c] => [a, b, c],
+                _ => {
+                    return Err("Invalid number of arguments: color attribute only has 3 values")
+                }
+            }.into_iter().filter(|x| (0.0..=1.0).contains(x)).collect::<Vec<f32>>()[..]{
+                [a, b, c] => [a, b, c],
+                _ => {
+                    return Err("Invalid values: arguments should be between 0 and 1")
+                }
+            }.into_iter()
+            .map(|x| f64::to_bits(x as f64))
+            .collect::<Vec<u64>>();
+            Ok(vec![0].into_iter().chain(numbers.into_iter()).collect())
+        },
+        ("destroy_when_done", boolean) => match boolean {
+            "true" => Ok(vec![1, 1]),
+            "false" => Ok(vec![1, 0]),
+            _ => Err("Invalid parameter")
+        },
+        _ => Err("Unkown attribute: undefined attribute")
+    }
+}
+
 // Tests to check that the library is working properly
 #[cfg(test)]
 mod tests {
@@ -692,6 +744,33 @@ mod tests {
     #[test]
     fn parse_advanced_repeat_with_irregular_spacing() {
         assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, f64::to_bits(3.0), 103, 0, 102, 0, 102, 0, 102, 0]))
+    }
+
+
+    #[test]
+    fn parse_attributions() {
+        assert_eq!(parse_equation("color = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+    }
+    
+    #[test]
+    fn parse_colour_attribution() {
+        assert_eq!(parse_equation("colour = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+        assert_eq!(parse_equation("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
+    }
+
+    #[test]
+    fn parse_limit_colour_attribution() {
+        assert_eq!(parse_equation("     color      =        [   0.212,    1,0.3]"), Ok(vec![0, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
+    }
+
+    #[test]
+    fn parse_bool_attrtbution() {
+        assert_eq!(parse_equation("destroy_when_done = true"), Ok(vec![1, 1]))
+    }
+
+    #[test]
+    fn parse_attributions_section(){
+        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![502, 0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
     }
 
     #[test]
