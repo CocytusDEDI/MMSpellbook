@@ -737,7 +737,6 @@ impl Spell {
     }
 
     fn set_meta_data(&mut self, equations: Vec<u64>) {
-        // TODO: code
         let mut codes = equations.into_iter();
         while let Some(code) = codes.next() {
             match code {
