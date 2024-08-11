@@ -84,7 +84,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
             } else if trimmed_line == "" {
                 continue
             } else if trimmed_line.contains('=') && Some(502) == in_section { // Indicates an assignment of metadata
-                instructions.extend(parse_equation(trimmed_line)?)
+                instructions.extend(parse_about_line(trimmed_line)?)
             } else {
                 return Err("Not acceptable statement")
             }
@@ -664,13 +664,13 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
     }
 }
 
-fn parse_equation(equation: &str) -> Result<Vec<u64>, &'static str>{
+fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
     let (name, value) = match equation.split_once('='){
         Some(n) => n,
         None => return Err("equation not valid")
     };
     
-    match (name.trim(), value.trim()) { // because no map for tuples in rust
+    match (name.trim(), value.trim()) {
         ("colour", values) | ("color", values) => {
             // returns used to sidestep borrowing rules
             let numbers = match match match match values.strip_prefix('[')
@@ -701,11 +701,6 @@ fn parse_equation(equation: &str) -> Result<Vec<u64>, &'static str>{
             .map(|x| f64::to_bits(x as f64))
             .collect::<Vec<u64>>();
             Ok(vec![0].into_iter().chain(numbers.into_iter()).collect())
-        },
-        ("destroy_when_done", boolean) => match boolean {
-            "true" => Ok(vec![1, 1]),
-            "false" => Ok(vec![1, 0]),
-            _ => Err("Invalid parameter")
         },
         _ => Err("Unkown attribute: undefined attribute")
     }
@@ -759,13 +754,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_limit_colour_attribution() {
+    fn parse_limit_colour() {
         assert_eq!(parse_equation("     color      =        [   0.212,    1,0.3]"), Ok(vec![0, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
-    }
-
-    #[test]
-    fn parse_bool_attrtbution() {
-        assert_eq!(parse_equation("destroy_when_done = true"), Ok(vec![1, 1]))
     }
 
     #[test]

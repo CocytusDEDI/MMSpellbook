@@ -736,29 +736,24 @@ impl Spell {
         }
     }
 
-    fn set_meta_data(&mut self, equations: Vec<u64>) {
-        let mut codes = equations.into_iter();
+    fn set_meta_data(&mut self, attributes: Vec<u64>) {
+        let mut codes = attributes.into_iter();
         while let Some(code) = codes.next() {
             match code {
-                0 => { // set colour
-                    match match vec![codes.next(), codes.next(), codes.next()].into_iter().collect::<Option<Vec<u64>>>(){ // transpose vec of option into option of vec
-                        Some(n) => n,
-                        None => panic!("Invalid data")
+                0 => { // Set colour
+                    match match vec![codes.next(), codes.next(), codes.next()].into_iter().collect::<Option<Vec<u64>>>(){ // Transpose vec of option into option of vec
+                        Some(colour_vector) => colour_vector,
+                        None => panic!("Invalid data: There should be three color values")
                     }.into_iter()
                     .map(|x| f64::from_bits(x) as f32)
                     .collect::<Vec<f32>>()[..] {
-                        [c, d, e] => self.color = Color{r: c, g: d, b: e, a: SPELL_TRANSPARENCY},
-                        _ => panic!("Invalid data")
+                        [red, green, blue] => self.color = Color{r: red, g: green, b: blue, a: SPELL_TRANSPARENCY},
+                        _ => panic!("Failed to parse colors")
                     }
-                },
-                1 => { // set destroy_when_done
-                    codes.next();
-                    panic!("Implementation not specified for destroy_when_done")
                 },
                 _ => {}
             }
         }
-
     }
 
     fn translate_instructions(instructions_json: GString) -> Vec<u64> {
