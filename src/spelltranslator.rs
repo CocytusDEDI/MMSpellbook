@@ -68,9 +68,20 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
             if let None = in_section {
                 return Err("Must begin with section statement");
             }
+
+            if Some(502) == in_section {
+                if trimmed_line.contains('=') { // Indicates an assignment of metadata
+                    instructions.extend(parse_about_line(trimmed_line)?);
+                    continue
+                } else if trimmed_line == "" {
+                    continue
+                } else {
+                    return Err("Expected attribute in about section")
+                }
+            }
             
             // If in section, parse code
-            if trimmed_line.ends_with(")") && Some(502) != in_section { // Checking to see if component
+            if trimmed_line.ends_with(")") { // Checking to see if component
                 instructions.extend(parse_component(trimmed_line)?);
             } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
                 instructions.push(400); // Indicates if statement
@@ -82,8 +93,6 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                 expected_closing_brackets -= 1;
             } else if trimmed_line == "" {
                 continue
-            } else if trimmed_line.contains('=') && Some(502) == in_section { // Indicates an assignment of metadata
-                instructions.extend(parse_about_line(trimmed_line)?)
             } else {
                 return Err("Not acceptable statement")
             }
@@ -668,7 +677,7 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
     
     match (name.trim(), value.trim()) {
         ("colour", values) | ("color", values) => {
-            // returns used to sidestep borrowing rules
+            // Returns used to sidestep borrowing rules
             let numbers = match match values.strip_prefix('[')
             .and_then(|x| x.strip_suffix(']'))
             .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?
@@ -676,7 +685,7 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
             .map(str::trim)
             .map(str::parse::<f32>)
             .collect::<Result<Vec<f32>, _>>()
-            .map_err(|_| "Invalid parameters: should be floating point numbers(with decimal point)")?[..] {
+            .map_err(|_| "Invalid parameters: should be floating point numbers (with decimal point)")?[..] {
                 [a, b, c] => [a, b, c],
                 _ => {
                     return Err("Invalid number of arguments: color attribute only has 3 values")
@@ -746,7 +755,7 @@ mod tests {
     fn parse_invalid_color_attribution() {
         assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
         assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
-        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: should be floating point numbers(with decimal point)"));
+        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: should be floating point numbers (with decimal point)"));
     }
 
     #[test]
@@ -772,5 +781,10 @@ mod tests {
     #[test]
     fn parse_component_as_parameter() {
         assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)"), Ok(vec![500, 103, 0, 103, 1001, 102, 0, 102, 0]))
+    }
+
+    #[test]
+    fn parse_complex_spell() {
+        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![502,0,f64::to_bits(1.0),0,f64::to_bits(1.0),500,103,0,102,f64::to_bits(1.0),102,0,102,0,501,102,f64::to_bits(5.0),103,0,102,f64::to_bits(0.1),102,0,102,0]))
     }
 }

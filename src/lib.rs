@@ -705,7 +705,7 @@ impl Spell {
                     let something = *instructions_iter.next().expect("Expected number after literal opcode");
                     section_instructions.push(something);
                 },
-                500..=501 => { // Section opcodes
+                500..=502 => { // Section opcodes
                     match last_section {
                         0 => {},
                         500 => self.ready_instructions = section_instructions.clone(),
@@ -756,7 +756,7 @@ impl Spell {
                         _ => panic!("Failed to parse colors")
                     }
                 },
-                _ => {}
+                _ => panic!("Invalid attribute")
             }
         }
     }
