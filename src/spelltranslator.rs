@@ -1,6 +1,5 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use core::num::ParseFloatError;
 use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic};
 
 const FUNCTION_NAME_SIZE: usize = 30;
@@ -665,29 +664,19 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
 }
 
 fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
-    let (name, value) = match equation.split_once('='){
-        Some(n) => n,
-        None => return Err("equation not valid")
-    };
+    let (name, value) = equation.split_once('=').ok_or_else(|| "There must be an equals sign in an about line")?;
     
     match (name.trim(), value.trim()) {
         ("colour", values) | ("color", values) => {
             // returns used to sidestep borrowing rules
-            let numbers = match match match match values.strip_prefix('[')
-            .and_then(|x| x.strip_suffix(']')) {
-                Some(x) => x,
-                None => {
-                    return Err("Invalid parameters: should be a list and have \"[\" \"]\"")
-                }
-            }.split(',')
+            let numbers = match match values.strip_prefix('[')
+            .and_then(|x| x.strip_suffix(']'))
+            .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?
+            .split(',')
             .map(str::trim)
             .map(str::parse::<f32>)
-            .collect::<Result<Vec<f32>, ParseFloatError>>() {
-                Ok(n) => n,
-                Err(_) => {
-                    return Err("Invalid parameters: should be floating point numbers(with decimal point)")
-                }
-            }[..] {
+            .collect::<Result<Vec<f32>, _>>()
+            .map_err(|_| "Invalid parameters: should be floating point numbers(with decimal point)")?[..] {
                 [a, b, c] => [a, b, c],
                 _ => {
                     return Err("Invalid number of arguments: color attribute only has 3 values")
@@ -751,6 +740,13 @@ mod tests {
     fn parse_colour_attribution() {
         assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
         assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
+    }
+    
+    #[test]
+    fn parse_invalid_color_attribution() {
+        assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
+        assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
+        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: should be floating point numbers(with decimal point)"));
     }
 
     #[test]

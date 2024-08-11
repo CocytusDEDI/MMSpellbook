@@ -638,7 +638,7 @@ impl Spell {
         let mut instructions_iter = instructions.iter();
         let mut section: Option<u64> = None;
         while let Some(&bits) = instructions_iter.next() {
-            if let Some(502) = section { // ignore all checks in metadata section
+            if section.is_some_and(|x| x == 502) && !(500..=599).contains(&bits)  { // ignore all checks in metadata section
                 continue;
             }
             match bits {
