@@ -145,7 +145,7 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn handle_spell_casting(&mut self, delta: f64) {
+    fn handle_player_spell_casting(&mut self, delta: f64) {
         let control = self.get_control();
         if self.input.is_action_pressed("cast".into()) {
             let extra_energy = self.get_power() * delta;
@@ -162,17 +162,23 @@ impl MagicalEntity {
                 self.energy_charged = control;
             }
 
-            let mut spell = Spell::new_alloc();
-            spell.set_position(self.base().get_global_position());
+            self.cast_spell();
+        }
+    }
+
+    #[func]
+    fn cast_spell(&mut self) {
+        let mut spell = Spell::new_alloc();
+        spell.set_position(self.base().get_global_position());
 
 
-            if self.check_allowed_to_cast {
-                if Spell::internal_check_allowed_to_cast(self.loaded_spell.clone(), &self.component_catalogue).is_err() {
-                    return
-                }
+        if self.check_allowed_to_cast {
+            if Spell::internal_check_allowed_to_cast(self.loaded_spell.clone(), &self.component_catalogue).is_err() {
+                return
             }
+        }
 
-            {
+        {
             let mut spell_bind = spell.bind_mut();
 
             spell_bind.set_energy(self.energy_charged);
@@ -180,13 +186,12 @@ impl MagicalEntity {
             spell_bind.connect_player(self.to_gd().upcast());
             spell_bind.internal_set_efficiency_levels(self.component_efficiency_levels.clone());
             spell_bind.internal_set_instructions(self.loaded_spell.clone());
-            }
-
-            self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
-            self.spells_cast.push(spell);
-
-            self.energy_charged = 0.0;
         }
+
+        self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
+        self.spells_cast.push(spell);
+
+        self.energy_charged = 0.0;
     }
 
     #[func]

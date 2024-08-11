@@ -6,7 +6,7 @@ func _ready():
     Spell.add_component("give_velocity")
 
 func _process(delta):
-    self.handle_spell_casting(delta)
+    self.handle_player_spell_casting(delta)
 
 func set_spell(text):
     # Attempts to translate the instructions into executable format
