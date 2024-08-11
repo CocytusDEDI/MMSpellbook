@@ -677,7 +677,6 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
     
     match (name.trim(), value.trim()) {
         ("colour", values) | ("color", values) => {
-            // Returns used to sidestep borrowing rules
             let numbers = match match values.strip_prefix('[')
             .and_then(|x| x.strip_suffix(']'))
             .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?
