@@ -13,6 +13,7 @@ use godot::prelude::*;
 use crate::CustomColor;
 
 const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
+const SPELL_SAVE_FOLDER: &'static str = "SpellSave";
 
 #[derive(Deserialize, Serialize)]
 pub struct PlayerConfig {
@@ -56,15 +57,14 @@ pub mod godot_json_saver {
     where
         T: Serialize
     {
-        let mut json_file = match FileAccess::open(path.into_godot(), ModeFlags::WRITE) {
+        let parsed_path = path.trim().strip_prefix('/').unwrap_or(path);
+        let file_path: Vec<&str> = parsed_path.split('/').collect();
+
+        let mut json_file = match FileAccess::open(parsed_path.into_godot(), ModeFlags::WRITE) {
             Some(file) => file,
             None => {
-                let pos = path.rfind('/').ok_or("Couldn't open file and couldn't create file")?;
-                let dir_path = &path[..pos];
-                godot_print!("dir_path: {}", dir_path);
-                godot_print!("directory: {}", &path[pos+1..]);
-                DirAccess::open("user://".to_godot()).ok_or("Couldn't open user dir")?.make_dir(GString::from(&path[pos+1..]));
-                FileAccess::open(path.into_godot(), ModeFlags::WRITE).ok_or("Couldn't open file with write access")?
+                DirAccess::open("user://".to_godot()).ok_or("Couldn't open user dir")?.make_dir_recursive(GString::from(format!("{}/{}", SPELL_SAVE_FOLDER, file_path[..file_path.len()-1].join("/"))));
+                FileAccess::open(format!("user://{}/{}", SPELL_SAVE_FOLDER, file_path.join("/")).into_godot(), ModeFlags::WRITE).ok_or("Couldn't open file with write access")?
             }
         };
         json_file.store_string(serde_json::to_string::<T>(&object).map_err(|_| "Couldn't serialize data")?.into_godot());
