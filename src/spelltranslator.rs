@@ -343,35 +343,35 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
         match if_bits {
             0 => break,
             100..=101 => rpn_stack.push(if_bits), // true and false
-            102 => rpn_stack.extend(vec![102, *logic_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
+            102 => rpn_stack.extend(vec![102, *logic_iter.next().ok_or_else(|| "Expected following value")?]), // if 102, next bits are a number literal
             103 => { // Component
                 rpn_stack.extend(test_execute_component(&mut logic_iter)?);
             }
             200 => { // And statement
-                let bool_two = rpn_stack.pop().expect("Expected value to compare");
-                let bool_one = rpn_stack.pop().expect("Expected value to compare");
+                let bool_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
+                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
                 rpn_stack.push(boolean_logic::and(bool_one, bool_two)?);
             },
             201 => { // Or statement
-                let bool_two = rpn_stack.pop().expect("Expected value to compare");
-                let bool_one = rpn_stack.pop().expect("Expected value to compare");
+                let bool_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
+                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
                 rpn_stack.push(boolean_logic::or(bool_one, bool_two)?);
             },
             202 => { // Not statement
-                let bool_one = rpn_stack.pop().expect("Expected value to compare");
+                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
                 rpn_stack.push(boolean_logic::not(bool_one)?);
             },
             203 => { // Xor statement
-                let bool_two = rpn_stack.pop().expect("Expected value to compare");
-                let bool_one = rpn_stack.pop().expect("Expected value to compare");
+                let bool_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
+                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
                 rpn_stack.push(boolean_logic::xor(bool_one, bool_two)?);
             },
             300 => { // equals
-                let argument_two = rpn_stack.pop().expect("Expected value to compare");
-                let opcode_or_bool = rpn_stack.pop().expect("Expected value to compare");
+                let argument_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
+                let opcode_or_bool = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
                 if opcode_or_bool == 102 {
-                    let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                    let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                    let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                    let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                     if argument_one == f64::from_bits(argument_two) {
                         rpn_stack.push(100);
                     } else {
@@ -388,10 +388,10 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 }
             },
             301 => { // greater than
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                 if argument_one > argument_two {
                     rpn_stack.push(100);
                 } else {
@@ -399,10 +399,10 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 }
             },
             302 => { // lesser than
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                 if argument_one < argument_two {
                     rpn_stack.push(100);
                 } else {
@@ -410,38 +410,38 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 }
             },
             600 => { // multiply
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one * argument_two)]);
             }
             601 => { // divide
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one / argument_two)]);
             }
             602 => { // add
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one + argument_two)]);
             }
             603 => { // subtract
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one - argument_two)]);
             }
             604 => { // power
-                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
                 rpn_stack.extend(vec![102, f64::to_bits(argument_one.powf(argument_two))]);
             }
             _ => return Err("Invalid opcode")
@@ -496,7 +496,7 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
     }
     // Pop remaining operators off holding stack and push to output
     for _ in 0..holding_stack.len() {
-        output.push(holding_stack.pop().expect("Expected to work: Program logic fault"));
+        output.push(holding_stack.pop().ok_or_else(|| "Expected to work: Program logic fault")?);
     }
     let mut bit_conditions: Vec<u64> = vec![];
     for condition in output {
@@ -666,8 +666,8 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
     }
 
     match parameter_type {
-        1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().expect("Couldn't parse parameter: should be float"))),
-        2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().expect("Couldn't parse parameter: should be boolean"))),
+        1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().ok_or_else(|| "Couldn't parse parameter: should be float")?)),
+        2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().ok_or_else(|| "Couldn't parse parameter: should be boolean")?)),
         _ => Err("Invalid parameters: parameter doesn't match expected type")
     }
 }
