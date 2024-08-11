@@ -796,6 +796,12 @@ impl Spell {
     }
 
     #[func]
+    fn remove_component(&mut self, component: GString) {
+        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        self.component_catalogue.component_catalogue.remove(&component_code);
+    }
+
+    #[func]
     fn add_restricted_component(&mut self, component: GString, parameter_restrictions: GString) {
         let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
         let string_parameter_restrictions = parameter_restrictions.to_string();
@@ -901,10 +907,10 @@ impl Spell {
         Color::from_rgb(self.color.r as f32, self.color.g as f32, self.color.b as f32)
     }
 
-    /// Once `connect_player()` is called, whenever a component is cast, the provided node's `update_component_efficiency` method will be called
+    /// Once `connect_player()` is called, whenever a component is cast, the provided node's `increase_component_efficiency` method will be called
     #[func]
     fn connect_player(&mut self, player: Gd<Node>) {
-        let update_function = player.callable("update_component_efficiency");
+        let update_function = player.callable("increase_component_efficiency");
         self.base_mut().connect("component_cast".into(), update_function);
     }
 

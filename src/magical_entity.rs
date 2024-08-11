@@ -81,7 +81,7 @@ impl MagicalEntity {
     fn get_save_path_reference(&self) -> &str {
         match self.save_path {
             Some(ref path) => path,
-            None => panic!("Expected save path to be given")
+            None => panic!("Save path wasn't set")
         }
     }
 }
@@ -102,12 +102,6 @@ impl MagicalEntity {
                 self.perish();
             }
         }
-    }
-
-    #[func]
-    fn update_component_efficiency(&mut self, component: u64, efficiency_increase: f64) {
-        let current_efficiency_level = self.component_efficiency_levels.get(&component).unwrap_or(&1.0);
-        self.component_efficiency_levels.insert(component, current_efficiency_level + efficiency_increase);
     }
 
     #[func]
@@ -214,8 +208,19 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn set_instructions(&mut self, instructions: GString) {
-        self.loaded_spell = Spell::translate_instructions(&instructions)
+    fn increase_component_efficiency(&mut self, component: u64, efficiency_increase: f64) {
+        let current_efficiency_level = self.component_efficiency_levels.get(&component).unwrap_or(&1.0);
+        self.component_efficiency_levels.insert(component, current_efficiency_level + efficiency_increase);
+    }
+
+    #[func]
+    fn set_loaded_spell(&mut self, spell: GString) {
+        self.loaded_spell = Spell::translate_instructions(&spell)
+    }
+
+    #[func]
+    fn unset_loaded_spell(&mut self) {
+        self.loaded_spell = Vec::new();
     }
 
     #[func]
@@ -246,6 +251,11 @@ impl MagicalEntity {
     }
 
     #[func]
+    fn save_spell(&self, spell_name: GString, spell: GString) {
+        SpellCatalogue::save_spell(spell_name.to_string(), spell.to_string(), self.get_save_path_reference());
+    }
+
+    #[func]
     fn get_spell(&mut self, name: GString) -> Dictionary {
         let spell_catalogue = godot_json_saver::from_path::<SpellCatalogue>(self.get_save_path_reference()).unwrap().spell_catalogue;
         match spell_catalogue.get(&name.to_string()) {
@@ -255,13 +265,13 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn save_spell(&self, spell_name: GString, spell: GString) {
-        SpellCatalogue::save_spell(spell_name.to_string(), spell.to_string(), self.get_save_path_reference());
+    fn delete_spell_catalogue(&self) {
+        godot_json_saver::save(SpellCatalogue::new(), &format!("{}/spell_catalogue", self.get_save_path_reference())).unwrap();
     }
 
     #[func]
-    fn reset_spell_catalogue(&self) {
-        godot_json_saver::save(SpellCatalogue::new(), &format!("{}/spell_catalogue", self.get_save_path_reference())).unwrap();
+    fn delete_component_catalogue(&mut self) {
+        godot_json_saver::save(SpellCatalogue::new(), &format!("{}/component_catalogue", self.get_save_path_reference())).unwrap();
     }
 
     #[func]
@@ -270,12 +280,17 @@ impl MagicalEntity {
     }
 
     #[func]
+    fn save_component_catalogue(&self) {
+        godot_json_saver::save(self.component_catalogue.clone(), &format!("{}/component_catalogue", self.get_save_path_reference())).unwrap();
+    }
+
+    #[func]
     fn set_save_path(&mut self, save_path: GString) {
         self.save_path = Some(save_path.to_string())
     }
 
     #[func]
-    fn load_data(&mut self) {
+    fn load_saved_data(&mut self) {
         match godot_json_saver::from_path::<PlayerConfig>(&format!("{}/player_config", self.get_save_path_reference())) {
             Ok(player_config) => self.spell_color = player_config.color.into_spell_color(),
             Err(_) => {}
@@ -306,8 +321,9 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn save_component_catalogue(&self) {
-        godot_json_saver::save(self.component_catalogue.clone(), &format!("{}/component_catalogue", self.get_save_path_reference())).unwrap();
+    fn remove_component(&mut self, component: GString) {
+        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        self.component_catalogue.component_catalogue.remove(&component_code);
     }
 
     #[func]
