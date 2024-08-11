@@ -87,7 +87,6 @@ impl PlayerConfig {
             Some(file) => file,
             None => {
                 let mut player_config_file = FileAccess::open(PLAYER_CONFIG_PATH.into_godot(), ModeFlags::WRITE).expect("Expected to be able to write to player config");
-                player_config_file.store_string("{}".into_godot());
                 player_config_file.close();
                 FileAccess::open(PLAYER_CONFIG_PATH.into_godot(), ModeFlags::READ).expect("Expected to be able to read player config")
             }
@@ -95,7 +94,7 @@ impl PlayerConfig {
         let mut player_config: String = player_config_file.get_as_text().into();
         player_config_file.close();
         if player_config.is_empty() {
-            player_config = "{\"player_config\": {\"color\": {\"r\": 1, \"g\": 1, \"b\": 1}}}".to_string();
+            player_config = "{\"color\": {\"r\": 1, \"g\": 1, \"b\": 1}}".to_string();
         }
         serde_json::from_str(&player_config).expect("Couldn't parse player config")
     }
