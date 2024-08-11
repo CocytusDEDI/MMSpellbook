@@ -6,6 +6,7 @@ const FUNCTION_NAME_SIZE: usize = 30;
 
 const ON_READY_NAME: &'static str = "when_created";
 const PROCESS_NAME: &'static str = "repeat";
+const META_DATA_NAME: &'static str = "about";
 
 fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
     let mut padded_name = [None; FUNCTION_NAME_SIZE];
@@ -41,7 +42,7 @@ pub fn get_component_num(component_name: &str) -> Option<u64> {
 
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
     let mut instructions: Vec<u64> = vec![];
-    let mut in_section = false;
+    let mut in_section = None;
     let mut expected_closing_brackets: usize = 0;
     let trimmed_spell_code = spell_code.trim();
     for line in trimmed_spell_code.lines() {
@@ -59,12 +60,24 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                         Err(_) => return Err("Invalid value found after keyword \"every\"")
                     })
                 },
+                [META_DATA_NAME] => instructions.push(502),
                 _ => return Err("Invalid section name")
             };
-            in_section = true;
+            in_section = instructions.last().copied();
         } else {
-            if ! in_section {
+            if let None = in_section {
                 return Err("Must begin with section statement");
+            }
+
+            if Some(502) == in_section {
+                if trimmed_line.contains('=') { // Indicates an assignment of metadata
+                    instructions.extend(parse_about_line(trimmed_line)?);
+                    continue
+                } else if trimmed_line == "" {
+                    continue
+                } else {
+                    return Err("Expected attribute in about section")
+                }
             }
             
             // If in section, parse code
@@ -659,6 +672,38 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
     }
 }
 
+fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
+    let (name, value) = equation.split_once('=').ok_or_else(|| "There must be an equals sign in an about line")?;
+    
+    match (name.trim(), value.trim()) {
+        ("colour", values) | ("color", values) => {
+            // Returns used to sidestep borrowing rules
+            let numbers = match match values.strip_prefix('[')
+            .and_then(|x| x.strip_suffix(']'))
+            .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?
+            .split(',')
+            .map(str::trim)
+            .map(str::parse::<f32>)
+            .collect::<Result<Vec<f32>, _>>()
+            .map_err(|_| "Invalid parameters: should be floating point numbers (with decimal point)")?[..] {
+                [a, b, c] => [a, b, c],
+                _ => {
+                    return Err("Invalid number of arguments: color attribute only has 3 values")
+                }
+            }.into_iter().filter(|x| (0.0..=1.0).contains(x)).collect::<Vec<f32>>()[..]{
+                [a, b, c] => [a, b, c],
+                _ => {
+                    return Err("Invalid values: arguments should be between 0 and 1")
+                }
+            }.into_iter()
+            .map(|x| f64::to_bits(x as f64))
+            .collect::<Vec<u64>>();
+            Ok(vec![0].into_iter().chain(numbers.into_iter()).collect())
+        },
+        _ => Err("Unkown attribute: undefined attribute")
+    }
+}
+
 // Tests to check that the library is working properly
 #[cfg(test)]
 mod tests {
@@ -694,6 +739,35 @@ mod tests {
         assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, f64::to_bits(3.0), 103, 0, 102, 0, 102, 0, 102, 0]))
     }
 
+
+    #[test]
+    fn parse_attributions() {
+        assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+    }
+    
+    #[test]
+    fn parse_colour_attribution() {
+        assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+        assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
+    }
+    
+    #[test]
+    fn parse_invalid_color_attribution() {
+        assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
+        assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
+        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: should be floating point numbers (with decimal point)"));
+    }
+
+    #[test]
+    fn parse_limit_colour() {
+        assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![0, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
+    }
+
+    #[test]
+    fn parse_attributions_section(){
+        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![502, 0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
+    }
+
     #[test]
     fn parse_if_statement_spell() {
         assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 0, 103, 0, 102, f64::to_bits(1.0), 102, 0, 102, 0, 0]))
@@ -707,5 +781,10 @@ mod tests {
     #[test]
     fn parse_component_as_parameter() {
         assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)"), Ok(vec![500, 103, 0, 103, 1001, 102, 0, 102, 0]))
+    }
+
+    #[test]
+    fn parse_complex_spell() {
+        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![502,0,f64::to_bits(1.0),0,f64::to_bits(1.0),500,103,0,102,f64::to_bits(1.0),102,0,102,0,501,102,f64::to_bits(5.0),103,0,102,f64::to_bits(0.1),102,0,102,0]))
     }
 }

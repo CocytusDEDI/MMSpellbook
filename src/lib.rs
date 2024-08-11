@@ -310,29 +310,29 @@ impl Spell {
                                 rpn_stack.extend(self.execute_component(&mut instructions_iter)?)
                             }
                             200 => { // And statement
-                                let bool_two = rpn_stack.pop().expect("Expected value to compair");
-                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_two = rpn_stack.pop().expect("Expected value to compare");
+                                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                                 rpn_stack.push(boolean_logic::and(bool_one, bool_two).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             201 => { // Or statement
-                                let bool_two = rpn_stack.pop().expect("Expected value to compair");
-                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_two = rpn_stack.pop().expect("Expected value to compare");
+                                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                                 rpn_stack.push(boolean_logic::or(bool_one, bool_two).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             202 => { // Not statement
-                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                                 rpn_stack.push(boolean_logic::not(bool_one).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             203 => { // Xor statement
-                                let bool_two = rpn_stack.pop().expect("Expected value to compair");
-                                let bool_one = rpn_stack.pop().expect("Expected value to compair");
+                                let bool_two = rpn_stack.pop().expect("Expected value to compare");
+                                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                                 rpn_stack.push(boolean_logic::xor(bool_one, bool_two).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             300 => { // equals
-                                let argument_two = rpn_stack.pop().expect("Expected value to compair");
-                                let opcode_or_bool = rpn_stack.pop().expect("Expected value to compair");
+                                let argument_two = rpn_stack.pop().expect("Expected value to compare");
+                                let opcode_or_bool = rpn_stack.pop().expect("Expected value to compare");
                                 if opcode_or_bool == 102 {
-                                    let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                    let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                     let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                     if argument_one == f64::from_bits(argument_two) {
                                         rpn_stack.push(100);
@@ -348,9 +348,9 @@ impl Spell {
                                 }
                             },
                             301 => { // greater than
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                 if argument_one > argument_two {
                                     rpn_stack.push(100);
@@ -359,9 +359,9 @@ impl Spell {
                                 }
                             },
                             302 => { // lesser than
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                 if argument_one < argument_two {
                                     rpn_stack.push(100);
@@ -370,37 +370,37 @@ impl Spell {
                                 }
                             },
                             600 => { // multiply
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                 rpn_stack.extend(vec![102, f64::to_bits(argument_one * argument_two)]);
                             }
                             601 => { // divide
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                 rpn_stack.extend(vec![102, f64::to_bits(argument_one / argument_two)]);
                             }
                             602 => { // add
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                 rpn_stack.extend(vec![102, f64::to_bits(argument_one + argument_two)]);
                             }
                             603 => { // subtract
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                 rpn_stack.extend(vec![102, f64::to_bits(argument_one - argument_two)]);
                             }
                             604 => { // power
-                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_two = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
-                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compair"));
+                                let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                 let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                 rpn_stack.extend(vec![102, f64::to_bits(argument_one.powf(argument_two))]);
                             }
@@ -643,10 +643,17 @@ impl Spell {
 
     fn internal_check_allowed_to_cast(instructions: Vec<u64>, component_catalogue: &ComponentCatalogue) -> Result<(), &'static str> {
         let mut instructions_iter = instructions.iter();
+        let mut section: Option<u64> = None;
         while let Some(&bits) = instructions_iter.next() {
+            if section.is_some_and(|x| x == 502) && !(500..=599).contains(&bits)  { // ignore all checks in metadata section
+                continue;
+            }
             match bits {
                 102 => _ = instructions_iter.next(),
                 103 => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter, &component_catalogue)?,
+                500..=599 => {
+                    section = Some(bits)
+                },
                 _ => {}
             }
         }
@@ -698,13 +705,16 @@ impl Spell {
                     let something = *instructions_iter.next().expect("Expected number after literal opcode");
                     section_instructions.push(something);
                 },
-                500..=501 => { // Section opcodes
+                500..=502 => { // Section opcodes
                     match last_section {
                         0 => {},
                         500 => self.ready_instructions = section_instructions.clone(),
                         501 => {
                             section_instructions.remove(0);
                             self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
+                        },
+                        502 => {
+                            self.set_meta_data(section_instructions.clone())
                         },
                         _ => panic!("Invalid section")
                     }
@@ -724,7 +734,30 @@ impl Spell {
                 section_instructions.remove(0);
                 self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
             },
+            502 => {
+                self.set_meta_data(section_instructions.clone())
+            },
             _ => panic!("Invalid section")
+        }
+    }
+
+    fn set_meta_data(&mut self, attributes: Vec<u64>) {
+        let mut codes = attributes.into_iter();
+        while let Some(code) = codes.next() {
+            match code {
+                0 => { // Set colour
+                    match match vec![codes.next(), codes.next(), codes.next()].into_iter().collect::<Option<Vec<u64>>>(){ // Transpose vec of option into option of vec
+                        Some(colour_vector) => colour_vector,
+                        None => panic!("Invalid data: There should be three color values")
+                    }.into_iter()
+                    .map(|x| f64::from_bits(x) as f32)
+                    .collect::<Vec<f32>>()[..] {
+                        [red, green, blue] => self.color = Color{r: red, g: green, b: blue, a: SPELL_TRANSPARENCY},
+                        _ => panic!("Failed to parse colors")
+                    }
+                },
+                _ => panic!("Invalid attribute")
+            }
         }
     }
 
@@ -887,7 +920,7 @@ mod boolean_logic {
             (100, 101) => Ok(101),
             (101, 100) => Ok(101),
             (101, 101) => Ok(101),
-            _ => Err("Boolean logic can only compair booleans")
+            _ => Err("Boolean logic can only compare booleans")
         }
     }
 
@@ -898,7 +931,7 @@ mod boolean_logic {
             (100, 101) => Ok(100),
             (101, 100) => Ok(100),
             (101, 101) => Ok(101),
-            _ => Err("Boolean logic can only compair booleans")
+            _ => Err("Boolean logic can only compare booleans")
         }
     }
 
@@ -909,7 +942,7 @@ mod boolean_logic {
             (100, 101) => Ok(100),
             (101, 100) => Ok(100),
             (101, 101) => Ok(101),
-            _ => Err("Boolean logic can only compair booleans")
+            _ => Err("Boolean logic can only compare booleans")
         }
     }
 
