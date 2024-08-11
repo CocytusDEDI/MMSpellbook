@@ -1,8 +1,10 @@
 use std::f64::consts::E;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 use serde_json::Value;
 
-use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::PlayerConfig, saver::SpellCatalogue, parse_spell};
+use crate::{ComponentCatalogue, DEFAULT_COLOR};
+use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::*, parse_spell, get_component_num};
 
 // Godot imports
 use godot::prelude::*;
@@ -11,12 +13,32 @@ use godot::classes::ICharacterBody3D;
 
 const FOCUS_LEVEL_TO_FOCUS: f64 = 0.05;
 
+#[derive(Deserialize, Serialize)]
+pub struct SpellCatalogue {
+    pub spell_catalogue: HashMap<String, String>
+}
+
+impl SpellCatalogue {
+    fn new() -> Self {
+        SpellCatalogue { spell_catalogue: HashMap::new() }
+    }
+
+    pub fn save_spell(spell_name: String, spell: String, save_path: &str) {
+        let mut spell_catalogue: SpellCatalogue = godot_json_saver::from_path(save_path).unwrap();
+        spell_catalogue.spell_catalogue.insert(spell_name, spell);
+        godot_json_saver::save(spell_catalogue, &format!("{}/spell_catalogue", save_path)).unwrap();
+    }
+}
+
 #[derive(GodotClass)]
 #[class(base=CharacterBody3D)]
 pub struct MagicalEntity {
     base: Base<CharacterBody3D>,
     input: Gd<Input>,
-    default_spell_color: Color,
+    save_path: Option<String>,
+    check_allowed_to_cast: bool,
+    component_catalogue: ComponentCatalogue,
+    spell_color: Color,
     #[export]
     health: f64,
     #[export]
@@ -37,7 +59,10 @@ impl ICharacterBody3D for MagicalEntity {
         Self {
             base,
             input: Input::singleton(),
-            default_spell_color: PlayerConfig::get_or_create_player_config().color.into_spell_color(),
+            save_path: None,
+            check_allowed_to_cast: true,
+            component_catalogue: ComponentCatalogue::new(),
+            spell_color: DEFAULT_COLOR.into_spell_color(),
             health: 0.0,
             shield: 0.0,
             loaded_spell: Vec::new(),
@@ -48,6 +73,15 @@ impl ICharacterBody3D for MagicalEntity {
             max_power: 10.0,
             power_left: 1.0,
             component_efficiency_levels: HashMap::new()
+        }
+    }
+}
+
+impl MagicalEntity {
+    fn get_save_path_reference(&self) -> &str {
+        match self.save_path {
+            Some(ref path) => path,
+            None => panic!("Expected save path to be given")
         }
     }
 }
@@ -131,18 +165,21 @@ impl MagicalEntity {
             let mut spell = Spell::new_alloc();
             spell.set_position(self.base().get_global_position());
 
-            if Spell::internal_check_allowed_to_cast(self.loaded_spell.clone()).is_err() {
-                return
+
+            if self.check_allowed_to_cast {
+                if Spell::internal_check_allowed_to_cast(self.loaded_spell.clone(), &self.component_catalogue).is_err() {
+                    return
+                }
             }
 
             {
             let mut spell_bind = spell.bind_mut();
 
             spell_bind.set_energy(self.energy_charged);
-            spell_bind.set_color(self.default_spell_color);
+            spell_bind.set_color(self.spell_color);
             spell_bind.connect_player(self.to_gd().upcast());
             spell_bind.internal_set_efficiency_levels(self.component_efficiency_levels.clone());
-            spell_bind.set_instructions_internally(self.loaded_spell.clone());
+            spell_bind.internal_set_instructions(self.loaded_spell.clone());
             }
 
             self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
@@ -173,13 +210,13 @@ impl MagicalEntity {
 
     #[func]
     fn set_instructions(&mut self, instructions: GString) {
-        self.loaded_spell = Spell::translate_instructions(instructions)
+        self.loaded_spell = Spell::translate_instructions(&instructions)
     }
 
     #[func]
-    fn get_spell_names() -> Array<GString> {
+    fn get_spell_names(&self) -> Array<GString> {
         let mut array = Array::new();
-        for spell_name in SpellCatalogue::get_or_create_spell_catalogue().spell_catalogue.keys() {
+        for spell_name in godot_json_saver::from_path::<SpellCatalogue>(&(format!("{}/spell_catalogue", self.get_save_path_reference()))).unwrap().spell_catalogue.keys() {
             array.push(spell_name.clone().into_godot());
         }
         return array
@@ -188,7 +225,7 @@ impl MagicalEntity {
     /// Returns true if the spell was loaded successfully and returns false if not
     #[func]
     fn load_spell(&mut self, name: GString) -> bool {
-        let spell_catalogue = SpellCatalogue::get_or_create_spell_catalogue().spell_catalogue;
+        let spell_catalogue = godot_json_saver::from_path::<SpellCatalogue>(self.get_save_path_reference()).unwrap().spell_catalogue;
         let spell_option = spell_catalogue.get(&name.to_string());
         let spell = match spell_option {
             Some(spell) => spell,
@@ -205,7 +242,7 @@ impl MagicalEntity {
 
     #[func]
     fn get_spell(&mut self, name: GString) -> Dictionary {
-        let spell_catalogue = SpellCatalogue::get_or_create_spell_catalogue().spell_catalogue;
+        let spell_catalogue = godot_json_saver::from_path::<SpellCatalogue>(self.get_save_path_reference()).unwrap().spell_catalogue;
         match spell_catalogue.get(&name.to_string()) {
             Some(spell) => dict! {"spell": spell.clone(), "successful": true},
             None => dict! {"spell": String::new(), "successful": false}
@@ -213,12 +250,61 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn save_spell(spell_name: GString, spell: GString) {
-        SpellCatalogue::save_spell(spell_name.into(), spell.into());
+    fn save_spell(&self, spell_name: GString, spell: GString) {
+        SpellCatalogue::save_spell(spell_name.to_string(), spell.to_string(), self.get_save_path_reference());
     }
 
     #[func]
-    fn reset_spell_catalogue() {
-        SpellCatalogue::store_spell_catalogue(SpellCatalogue { spell_catalogue: HashMap::new() });
+    fn reset_spell_catalogue(&self) {
+        godot_json_saver::save(SpellCatalogue::new(), &format!("{}/spell_catalogue", self.get_save_path_reference())).unwrap();
+    }
+
+    #[func]
+    fn reset_component_catalogue(&mut self) {
+        self.component_catalogue = ComponentCatalogue::new();
+    }
+
+    #[func]
+    fn set_save_path(&mut self, save_path: GString) {
+        self.save_path = Some(save_path.to_string())
+    }
+
+    #[func]
+    fn load_data(&mut self) {
+        let player_config = godot_json_saver::from_path::<PlayerConfig>(self.get_save_path_reference()).unwrap();
+        self.spell_color = player_config.color.into_spell_color();
+    }
+
+    #[func]
+    fn add_component(&mut self, component: GString) {
+        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let number_of_parameters = Spell::get_number_of_component_parameters(&component_code);
+        let mut parameter_restrictions: Vec<Vec<&str>> = Vec::new();
+        for _ in 0..number_of_parameters {
+            parameter_restrictions.push(vec!["ANY"]);
+        }
+        Spell::add_component_to_component_catalogue(component_code, parameter_restrictions, &mut self.component_catalogue);
+    }
+
+    #[func]
+    fn add_restricted_component(&mut self, component: GString, parameter_restrictions: GString) {
+        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let string_parameter_restrictions = parameter_restrictions.to_string();
+        let parameter_restrictions: Vec<Vec<&str>> = serde_json::from_str(&string_parameter_restrictions).expect("Couldn't parse JSON");
+        Spell::add_component_to_component_catalogue(component_code, parameter_restrictions, &mut self.component_catalogue);
+    }
+
+    #[func]
+    fn save_component_catalogue(&self) {
+        godot_json_saver::save(self.component_catalogue.clone(), &format!("{}/spell_catalogue", self.get_save_path_reference())).unwrap();
+    }
+
+    #[func]
+    fn check_allowed_to_cast(&self, instructions_json: GString) -> Dictionary {
+        let (allowed_to_cast, denial_reason) = match Spell::internal_check_allowed_to_cast(Spell::translate_instructions(&instructions_json), &self.component_catalogue) {
+            Ok(_) => (true, ""),
+            Err(error_message) => (false, error_message)
+        };
+        return dict! {"allowed_to_cast": allowed_to_cast, "denial_reason": denial_reason}
     }
 }
