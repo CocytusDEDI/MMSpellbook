@@ -744,18 +744,18 @@ mod tests {
 
     #[test]
     fn parse_attributions() {
-        assert_eq!(parse_equation("color = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+        assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
     }
     
     #[test]
     fn parse_colour_attribution() {
-        assert_eq!(parse_equation("colour = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
-        assert_eq!(parse_equation("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
+        assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+        assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
     }
 
     #[test]
     fn parse_limit_colour() {
-        assert_eq!(parse_equation("     color      =        [   0.212,    1,0.3]"), Ok(vec![0, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
+        assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![0, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
     }
 
     #[test]
