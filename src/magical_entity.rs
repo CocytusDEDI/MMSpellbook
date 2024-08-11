@@ -276,8 +276,14 @@ impl MagicalEntity {
 
     #[func]
     fn load_data(&mut self) {
-        let player_config = godot_json_saver::from_path::<PlayerConfig>(self.get_save_path_reference()).unwrap();
-        self.spell_color = player_config.color.into_spell_color();
+        match godot_json_saver::from_path::<PlayerConfig>(&format!("{}/player_config", self.get_save_path_reference())) {
+            Ok(player_config) => self.spell_color = player_config.color.into_spell_color(),
+            Err(_) => {}
+        };
+        match godot_json_saver::from_path::<ComponentCatalogue>(&format!("{}/component_catalogue", self.get_save_path_reference())) {
+            Ok(component_catalogue) => self.component_catalogue = component_catalogue,
+            Err(_) => {}
+        };
     }
 
     #[func]
@@ -301,7 +307,7 @@ impl MagicalEntity {
 
     #[func]
     fn save_component_catalogue(&self) {
-        godot_json_saver::save(self.component_catalogue.clone(), &format!("{}/spell_catalogue", self.get_save_path_reference())).unwrap();
+        godot_json_saver::save(self.component_catalogue.clone(), &format!("{}/component_catalogue", self.get_save_path_reference())).unwrap();
     }
 
     #[func]
