@@ -666,8 +666,8 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
     }
 
     match parameter_type {
-        1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().ok_or_else(|| "Couldn't parse parameter: should be float")?)),
-        2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().ok_or_else(|| "Couldn't parse parameter: should be boolean")?)),
+        1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().map_err(|_| "Couldn't parse parameter: should be float")?)),
+        2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().map_err(|_| "Couldn't parse parameter: should be boolean")?)),
         _ => Err("Invalid parameters: parameter doesn't match expected type")
     }
 }
