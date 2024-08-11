@@ -312,4 +312,9 @@ impl MagicalEntity {
         };
         return dict! {"allowed_to_cast": allowed_to_cast, "denial_reason": denial_reason}
     }
+
+    #[func]
+    fn increase_energy_charged(&mut self, energy: f64) {
+        self.energy_charged += energy;
+    }
 }
