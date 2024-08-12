@@ -24,6 +24,7 @@ mod saver;
 
 use saver::*;
 use spelltranslator::*;
+use magical_entity::MagicalEntity;
 
 // When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
@@ -39,7 +40,7 @@ const SPELL_TRANSPARENCY: f32 = 0.9;
 
 const RADIUS_UPDATE_RATE: usize = 7;
 
-const DEFAULT_DENSITY: f64 = 1.0;
+const DEFAULT_DENSITY: f64 = 100.0;
 const DEFAULT_DENSITY_RANGE: f64 = 0.5;
 
 #[derive(Serialize, Deserialize)]
@@ -98,7 +99,7 @@ lazy_static! {
         component_map.insert(1001, (component_functions::get_time as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::Float));
 
         // Power:
-        // None
+        component_map.insert(2000, (component_functions::set_damage as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
 
         return component_map
     };
@@ -129,6 +130,7 @@ impl Process {
 struct Spell {
     base: Base<Area3D>,
     energy: f64,
+    damage: f64,
     color: Color,
     counter: usize,
     density: f64,
@@ -152,6 +154,7 @@ impl IArea3D for Spell {
         Self {
             base,
             energy: 0.0,
+            damage: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
             counter: 0,
             density: DEFAULT_DENSITY,
@@ -263,9 +266,49 @@ impl IArea3D for Spell {
         self.process_instructions = instructions;
         }
 
-        // Handle energy lose
-        self.energy = self.energy - self.energy * self.energy_lose_rate * delta;
+        // Deal damage
+        if self.damage != 0.0 {
+            let objects = self.base().get_overlapping_bodies();
 
+            let mut number_of_magical_entities: usize = 0;
+
+            for object in objects.iter_shared() {
+                if let Ok(magical_entity_object) = object.try_cast::<MagicalEntity>() {
+                    let bind_magical_entity = magical_entity_object.bind();
+                    if !bind_magical_entity.owns_spell(self.to_gd()) {
+                        number_of_magical_entities += 1;
+                    }
+                }
+            }
+
+            for object in objects.iter_shared() {
+                if let Ok(mut magical_entity_object) = object.try_cast::<MagicalEntity>() {
+                    let mut bind_magical_entity = magical_entity_object.bind_mut();
+                    if !bind_magical_entity.owns_spell(self.to_gd()) {
+                        // Damage is split among magical_entities
+                        let damage = self.damage / number_of_magical_entities as f64;
+
+                        // Code ensures energy used is at max the magic_entities health and that if it can't do damage specified it does as much of that damage as it can before destroying itself
+                        let possible_damage = damage.min(bind_magical_entity.get_health_and_shield());
+
+                        if self.energy - possible_damage < ENERGY_CONSIDERATION_LEVEL {
+                            bind_magical_entity.take_damage(self.energy);
+                            self.free_spell();
+                            return;
+                        }
+
+                        self.energy -= possible_damage;
+
+                        bind_magical_entity.take_damage(possible_damage);
+                    }
+                }
+            }
+        }
+
+        // Handle energy lose
+        self.energy -= self.energy * self.energy_lose_rate * delta;
+
+        // Decreases the radius of the sphere if form isn't set
         if !self.form_set && self.counter == 0 {
             // Radius changing of collision shape
             let radius = self.get_radius();
@@ -297,7 +340,7 @@ impl Spell {
             match bits {
                 0 => {}, // 0 = end of scope, if reached naturely, move on
                 103 => { // 103 = component
-                    let _ = self.execute_component(&mut instructions_iter);
+                    self.execute_component(&mut instructions_iter)?;
                 },
                 400 => { // 400 = if statement
                     let mut rpn_stack: Vec<u64> = vec![];

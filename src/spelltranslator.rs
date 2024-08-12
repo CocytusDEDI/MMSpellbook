@@ -29,8 +29,8 @@ lazy_static! {
         component_map.insert(pad_component_name("moving"), 1000);
         component_map.insert(pad_component_name("get_time"), 1001);
 
-        // // Power:
-        // None
+        // Power:
+        component_map.insert(pad_component_name("set_damage"), 2000);
 
         component_map
     };
@@ -740,30 +740,26 @@ mod tests {
 
 
     #[test]
-    fn parse_attributions() {
+    fn parse_spell_color() {
         assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
-    }
-    
-    #[test]
-    fn parse_colour_attribution() {
         assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
-        assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
     }
     
     #[test]
-    fn parse_invalid_color_attribution() {
+    fn parse_invalid_spell_color() {
+        assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
         assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
         assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
         assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: should be floating point numbers (with decimal point)"));
     }
 
     #[test]
-    fn parse_limit_colour() {
+    fn parse_spell_color_with_irregular_spacing() {
         assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![0, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
     }
 
     #[test]
-    fn parse_attributions_section(){
+    fn parse_about_section(){
         assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![502, 0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
     }
 
@@ -785,5 +781,16 @@ mod tests {
     #[test]
     fn parse_complex_spell() {
         assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![502,0,f64::to_bits(1.0),0,f64::to_bits(1.0),500,103,0,102,f64::to_bits(1.0),102,0,102,0,501,102,f64::to_bits(5.0),103,0,102,f64::to_bits(0.1),102,0,102,0]))
+    }
+
+    /// Ensures all components in the COMPONENT_TO_NUM_MAP are in the COMPONENT_TO_FUNCTION_MAP
+    #[test]
+    fn compare_component_maps() {
+        for value in COMPONENT_TO_NUM_MAP.values() {
+            match COMPONENT_TO_FUNCTION_MAP.get(value) {
+                Some(_) => {},
+                None => panic!("Component code {} not in COMPONENT_TO_FUNCTION_MAP", value)
+            }
+        }
     }
 }

@@ -9,7 +9,7 @@ logic:
 1001 = get_time() -> float
 
 power:
-
+2000 = set_damage()
 
 ## Planned (but could change):
 utility:
@@ -18,5 +18,5 @@ anchor()
 logic:
 
 power:
-damage()
+
 

@@ -4,6 +4,8 @@ use crate::Spell;
 
 const APPLY_TO_SPELL_COEFFICIENT: f64 = 70.0;
 
+// Utility:
+
 pub fn give_velocity(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     let x_speed: f32 = f64::from_bits(parameters[0]) as f32;
     let y_speed: f32 = f64::from_bits(parameters[1]) as f32;
@@ -14,21 +16,6 @@ pub fn give_velocity(spell: &mut Spell, parameters: &[u64], should_execute: bool
         return None
     } else {
         return Some(vec![f64::to_bits((spell.energy / 2.0) * ((x_speed * x_speed + y_speed * y_speed + z_speed * z_speed) as f64).sqrt() / APPLY_TO_SPELL_COEFFICIENT)]) // E_K = (1/2)mv^2
-    }
-}
-
-pub fn moving(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
-    // Static energy return
-    if !should_execute {
-        return Some(vec![f64::to_bits(0.1)])
-    }
-
-    let parameter_speed = f64::from_bits(parameters[0]);
-
-    if (spell.velocity.x.powi(2) + spell.velocity.y.powi(2) + spell.velocity.z.powi(2)).sqrt() >= parameter_speed as f32 {
-        return Some(vec![100])
-    } else {
-        return Some(vec![101])
     }
 }
 
@@ -52,6 +39,8 @@ pub fn undo_form(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -
     return None
 }
 
+// Logic:
+
 pub fn get_time(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
         return Some(vec![102, f64::to_bits(0.1)]) // TODO: Should be set in config
@@ -68,4 +57,30 @@ pub fn get_time(spell: &mut Spell, _parameters: &[u64], should_execute: bool) ->
     };
 
     return Some(vec![102, f64::to_bits((current_time.get_ticks_msec() - start_time) as f64 / 1000.0)])
+}
+
+pub fn moving(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    // Static energy return
+    if !should_execute {
+        return Some(vec![f64::to_bits(0.1)]) // TODO: Adjust energy requirements
+    }
+
+    let parameter_speed = f64::from_bits(parameters[0]);
+
+    if (spell.velocity.x.powi(2) + spell.velocity.y.powi(2) + spell.velocity.z.powi(2)).sqrt() >= parameter_speed as f32 {
+        return Some(vec![100])
+    } else {
+        return Some(vec![101])
+    }
+}
+
+// Power:
+pub fn set_damage(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    if !should_execute {
+        return Some(vec![f64::to_bits(0.0)])
+    }
+
+    spell.damage = f64::from_bits(parameters[0]);
+
+    return None
 }
