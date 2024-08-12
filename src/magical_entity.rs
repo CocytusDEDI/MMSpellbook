@@ -98,6 +98,11 @@ impl MagicalEntity {
 #[godot_api]
 impl MagicalEntity {
     #[func]
+    pub fn get_health_and_shield(&self) -> f64 {
+        self.health + self.shield
+    }
+
+    #[func]
     pub fn take_damage(&mut self, energy: f64) {
         if self.shield - energy > 0.0 {
             self.shield -= energy;

@@ -267,7 +267,7 @@ impl IArea3D for Spell {
         }
 
         // Deal damage
-        if self.damage != 0.0 { // TODO: Don't make spells do overkill damage, damage not done to a magical entity shouldn't be used. This could be done by returning the excess damage
+        if self.damage != 0.0 {
             let objects = self.base().get_overlapping_bodies();
 
             let mut number_of_magical_entities: usize = 0;
@@ -280,20 +280,26 @@ impl IArea3D for Spell {
                     }
                 }
             }
-            if number_of_magical_entities > 0 {
-                self.energy -= self.damage;
-            }
-
-            if self.energy < ENERGY_CONSIDERATION_LEVEL {
-                self.free_spell();
-                return;
-            }
 
             for object in objects.iter_shared() {
                 if let Ok(mut magical_entity_object) = object.try_cast::<MagicalEntity>() {
                     let mut bind_magical_entity = magical_entity_object.bind_mut();
                     if !bind_magical_entity.owns_spell(self.to_gd()) {
-                        bind_magical_entity.take_damage(self.damage / number_of_magical_entities as f64);
+                        // Damage is split among magical_entities
+                        let damage = self.damage / number_of_magical_entities as f64;
+
+                        // Code ensures energy used is at max the magic_entities health and that if it can't do damage specified it does as much of that damage as it can before destroying itself
+                        let possible_damage = damage.min(bind_magical_entity.get_health_and_shield());
+
+                        if self.energy - possible_damage < ENERGY_CONSIDERATION_LEVEL {
+                            bind_magical_entity.take_damage(self.energy);
+                            self.free_spell();
+                            return;
+                        }
+
+                        self.energy -= possible_damage;
+
+                        bind_magical_entity.take_damage(possible_damage);
                     }
                 }
             }
@@ -302,6 +308,7 @@ impl IArea3D for Spell {
         // Handle energy lose
         self.energy -= self.energy * self.energy_lose_rate * delta;
 
+        // Decreases the radius of the sphere if form isn't set
         if !self.form_set && self.counter == 0 {
             // Radius changing of collision shape
             let radius = self.get_radius();
