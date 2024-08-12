@@ -267,7 +267,7 @@ impl IArea3D for Spell {
         }
 
         // Deal damage
-        if self.damage != 0.0 {
+        if self.damage != 0.0 { // TODO: Don't make spells do overkill damage, damage not done to a magical entity shouldn't be used. This could be done by returning the excess damage
             let objects = self.base().get_overlapping_bodies();
 
             let mut number_of_magical_entities: usize = 0;
