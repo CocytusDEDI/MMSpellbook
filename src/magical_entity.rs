@@ -84,12 +84,21 @@ impl MagicalEntity {
             None => panic!("Save path wasn't set")
         }
     }
+
+    pub fn owns_spell(&self, spell: Gd<Spell>) -> bool {
+        for owned_spell in &self.spells_cast {
+            if &spell == owned_spell {
+                return true
+            }
+        }
+        return false
+    }
 }
 
 #[godot_api]
 impl MagicalEntity {
     #[func]
-    fn take_damage(&mut self, energy: f64) {
+    pub fn take_damage(&mut self, energy: f64) {
         if self.shield - energy > 0.0 {
             self.shield -= energy;
         } else {
@@ -114,8 +123,6 @@ impl MagicalEntity {
     fn get_focus(&self) -> f64 {
         2.0 / (1.0 + E.powf(-self.focus_level * FOCUS_LEVEL_TO_FOCUS))
     }
-
-    // Could just use self.focus instead and have the increase focus method take a focus_level to increase by
 
     #[func]
     fn get_power(&self) -> f64 {
