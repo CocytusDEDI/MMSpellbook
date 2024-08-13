@@ -43,11 +43,18 @@ pub struct MagicalEntity {
     health: f64,
     #[export]
     shield: f64,
+    #[export]
+    max_health: f64,
+    #[export]
+    max_shield: f64,
     loaded_spell: Vec<u64>,
     spells_cast: Vec<Gd<Spell>>,
     energy_charged: f64,
+    #[export]
     focus_level: f64,
+    #[export]
     max_control: f64,
+    #[export]
     max_power: f64,
     power_left: f64, // Percentage
     component_efficiency_levels: HashMap<u64, f64>
@@ -63,6 +70,8 @@ impl ICharacterBody3D for MagicalEntity {
             check_allowed_to_cast: true,
             component_catalogue: ComponentCatalogue::new(),
             spell_color: DEFAULT_COLOR.into_spell_color(),
+            max_health: 0.0,
+            max_shield: 0.0,
             health: 0.0,
             shield: 0.0,
             loaded_spell: Vec::new(),
