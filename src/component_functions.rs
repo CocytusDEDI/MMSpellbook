@@ -39,6 +39,22 @@ pub fn undo_form(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -
     return None
 }
 
+pub fn recharge_to(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    if !should_execute {
+        return Some(vec![f64::to_bits(0.0)])
+    }
+
+    let energy_wanted = f64::from_bits(parameters[0]);
+
+    if spell.energy >= energy_wanted {
+        return None
+    }
+
+    spell.energy_requested = energy_wanted - spell.energy;
+
+    return None
+}
+
 // Logic:
 
 pub fn get_time(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {

@@ -56,7 +56,6 @@ pub struct MagicalEntity {
     max_control: f64,
     #[export]
     max_power: f64,
-    power_left: f64, // Percentage
     component_efficiency_levels: HashMap<u64, f64>
 }
 
@@ -80,7 +79,6 @@ impl ICharacterBody3D for MagicalEntity {
             focus_level: 0.0,
             max_control: 100.0,
             max_power: 10.0,
-            power_left: 1.0,
             component_efficiency_levels: HashMap::new()
         }
     }
@@ -140,7 +138,12 @@ impl MagicalEntity {
 
     #[func]
     fn get_power(&self) -> f64 {
-        self.max_power * self.get_focus() * self.power_left
+        self.max_power * self.get_focus()
+    }
+
+    #[func]
+    fn get_energy_charged(&self) -> f64 {
+        self.energy_charged
     }
 
     #[func]
@@ -162,6 +165,7 @@ impl MagicalEntity {
     #[func]
     fn handle_player_spell_casting(&mut self, delta: f64) {
         let control = self.get_control();
+        self.fulfil_recharge_requests();
         if self.input.is_action_pressed("cast".into()) {
             let extra_energy = self.get_power() * delta;
             if control >= self.energy_charged + extra_energy {
@@ -182,10 +186,29 @@ impl MagicalEntity {
     }
 
     #[func]
+    fn fulfil_recharge_requests(&mut self) {
+        self.spells_cast.retain_mut(|spell| {
+            if spell.is_instance_valid() {
+                let mut spell_bind = spell.bind_mut();
+                let energy_requested = spell_bind.energy_requested;
+                if energy_requested > self.energy_charged {
+                    spell_bind.energy += self.energy_charged;
+                    self.energy_charged = 0.0;
+                } else {
+                    spell_bind.energy += energy_requested;
+                    self.energy_charged -= energy_requested;
+                }
+                true
+            } else {
+                false
+            }
+        });
+    }
+
+    #[func]
     fn cast_spell(&mut self) {
         let mut spell = Spell::new_alloc();
-        spell.set_position(self.base().get_global_position());
-
+        spell.set_as_top_level(true);
 
         if self.check_allowed_to_cast {
             if Spell::internal_check_allowed_to_cast(self.loaded_spell.clone(), &self.component_catalogue).is_err() {
@@ -203,7 +226,8 @@ impl MagicalEntity {
             spell_bind.internal_set_instructions(self.loaded_spell.clone());
         }
 
-        self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
+        self.base_mut().add_child(&spell);
+        spell.set_position(self.base().get_global_position());
         self.spells_cast.push(spell);
 
         self.energy_charged = 0.0;

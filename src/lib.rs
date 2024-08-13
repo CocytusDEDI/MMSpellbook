@@ -93,6 +93,7 @@ lazy_static! {
         component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
         component_map.insert(1, (component_functions::take_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
         component_map.insert(2, (component_functions::undo_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(3, (component_functions::recharge_to as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
 
         // Logic:
         component_map.insert(1000, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
@@ -130,6 +131,7 @@ impl Process {
 struct Spell {
     base: Base<Area3D>,
     energy: f64,
+    energy_requested: f64,
     damage: f64,
     color: Color,
     counter: usize,
@@ -154,6 +156,7 @@ impl IArea3D for Spell {
         Self {
             base,
             energy: 0.0,
+            energy_requested: 0.0,
             damage: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
             counter: 0,
