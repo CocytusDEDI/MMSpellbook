@@ -3,15 +3,18 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 
-use crate::{ComponentCatalogue, DEFAULT_COLOR};
-use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::*, parse_spell, get_component_num};
+use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::*, parse_spell, get_component_num, ComponentCatalogue, DEFAULT_COLOR};
 
 // Godot imports
 use godot::prelude::*;
 use godot::classes::CharacterBody3D;
 use godot::classes::ICharacterBody3D;
 
-const FOCUS_LEVEL_TO_FOCUS: f64 = 0.05;
+const FOCUS_LEVEL_TO_FOCUS: f64 = 0.2;
+const FOCUS_LOSE_FROM_CASTING: f64 = 0.01;
+const FOCUS_LOSE_FROM_ENERGY_CHARGED: f64 = 0.001;
+const ENERGY_CHARGED_LOSE_RATE: f64 = 0.01;
+const DEFAULT_PASSIVE_FOCUS_CHANGE_RATE: f64 = 0.001;
 
 #[derive(Deserialize, Serialize)]
 pub struct SpellCatalogue {
@@ -34,7 +37,6 @@ impl SpellCatalogue {
 #[class(base=CharacterBody3D)]
 pub struct MagicalEntity {
     base: Base<CharacterBody3D>,
-    input: Gd<Input>,
     save_path: Option<String>,
     check_allowed_to_cast: bool,
     component_catalogue: ComponentCatalogue,
@@ -49,14 +51,17 @@ pub struct MagicalEntity {
     max_shield: f64,
     loaded_spell: Vec<u64>,
     spells_cast: Vec<Gd<Spell>>,
+    #[export]
     energy_charged: f64,
+    energy_selected: f64,
     #[export]
     focus_level: f64,
     #[export]
     max_control: f64,
     #[export]
     max_power: f64,
-    power_left: f64, // Percentage
+    #[export]
+    charge: bool,
     component_efficiency_levels: HashMap<u64, f64>
 }
 
@@ -65,7 +70,6 @@ impl ICharacterBody3D for MagicalEntity {
     fn init(base: Base<CharacterBody3D>) -> Self {
         Self {
             base,
-            input: Input::singleton(),
             save_path: None,
             check_allowed_to_cast: true,
             component_catalogue: ComponentCatalogue::new(),
@@ -77,10 +81,11 @@ impl ICharacterBody3D for MagicalEntity {
             loaded_spell: Vec::new(),
             spells_cast: Vec::new(),
             energy_charged: 0.0,
+            energy_selected: 1.0,
             focus_level: 0.0,
             max_control: 100.0,
             max_power: 10.0,
-            power_left: 1.0,
+            charge: false,
             component_efficiency_levels: HashMap::new()
         }
     }
@@ -140,7 +145,7 @@ impl MagicalEntity {
 
     #[func]
     fn get_power(&self) -> f64 {
-        self.max_power * self.get_focus() * self.power_left
+        self.max_power * self.get_focus()
     }
 
     #[func]
@@ -160,32 +165,94 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn handle_player_spell_casting(&mut self, delta: f64) {
+    fn change_energy_selected(&mut self, change_amount: f64) {
+        let mut new_amount = self.energy_selected + change_amount;
+        if new_amount > 1.0 {
+            new_amount = 1.0;
+        } else if new_amount < 0.0 {
+            new_amount = 0.0;
+        }
+        self.energy_selected = new_amount;
+    }
+
+    #[func]
+    fn get_energy_selected(&self) -> f64 {
+        self.energy_selected
+    }
+
+    #[func]
+    fn handle_magic(&mut self, delta: f64) {
         let control = self.get_control();
-        if self.input.is_action_pressed("cast".into()) {
+
+        if self.charge {
             let extra_energy = self.get_power() * delta;
             if control >= self.energy_charged + extra_energy {
                 self.energy_charged += extra_energy;
             } else {
                 self.energy_charged = control;
             }
-        } else if self.input.is_action_just_released("cast".into()) {
-            if self.energy_charged < ENERGY_CONSIDERATION_LEVEL {
-                return
-            }
-            if control < self.energy_charged {
-                self.energy_charged = control;
-            }
+        }
 
-            self.cast_spell();
+        self.reduce_energy_charged(delta);
+        self.reduce_focus_due_to_energy_charged(delta);
+        self.passive_focus_stabilising(DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, delta); // TODO: Handle changing passive_focus_recharge_rate
+        self.fulfil_recharge_requests();
+    }
+
+    #[func]
+    fn passive_focus_stabilising(&mut self, possibile_increase: f64, possibile_decrease: f64, delta: f64) {
+        let focus = self.get_focus();
+        if focus < 1.0 {
+            self.focus_level += possibile_increase * delta;
+        } else if focus > 1.0 {
+            self.focus_level -= possibile_decrease * delta;
         }
     }
 
     #[func]
-    fn cast_spell(&mut self) {
-        let mut spell = Spell::new_alloc();
-        spell.set_position(self.base().get_global_position());
+    fn reduce_energy_charged(&mut self, delta: f64) {
+        self.energy_charged -= self.energy_charged * ENERGY_CHARGED_LOSE_RATE * delta;
+        if self.energy_charged < 0.0 {
+            self.energy_charged = 0.0;
+        }
+    }
 
+    #[func]
+    fn reduce_focus_due_to_energy_charged(&mut self, delta: f64) {
+        self.focus_level -= self.energy_charged * FOCUS_LOSE_FROM_ENERGY_CHARGED * delta / self.max_power;
+    }
+
+    #[func]
+    fn fulfil_recharge_requests(&mut self) {
+        self.spells_cast.retain_mut(|spell| {
+            if spell.is_instance_valid() {
+                let mut spell_bind = spell.bind_mut();
+                let energy_requested = spell_bind.energy_requested;
+                if energy_requested > self.energy_charged {
+                    spell_bind.energy += self.energy_charged;
+                    self.energy_charged = 0.0;
+                } else {
+                    spell_bind.energy += energy_requested;
+                    self.energy_charged -= energy_requested;
+                }
+                true
+            } else {
+                false
+            }
+        });
+    }
+
+    #[func]
+    fn cast_spell(&mut self) {
+        if self.energy_charged * self.energy_selected < ENERGY_CONSIDERATION_LEVEL {
+            return
+        }
+
+        let control = self.get_control();
+
+        if control < self.energy_charged {
+            self.energy_charged = control;
+        }
 
         if self.check_allowed_to_cast {
             if Spell::internal_check_allowed_to_cast(self.loaded_spell.clone(), &self.component_catalogue).is_err() {
@@ -193,20 +260,25 @@ impl MagicalEntity {
             }
         }
 
+        let mut spell = Spell::new_alloc();
+        spell.set_as_top_level(true);
+
         {
             let mut spell_bind = spell.bind_mut();
 
-            spell_bind.set_energy(self.energy_charged);
+            spell_bind.set_energy(self.energy_charged * self.energy_selected);
             spell_bind.set_color(self.spell_color);
             spell_bind.connect_player(self.to_gd().upcast());
             spell_bind.internal_set_efficiency_levels(self.component_efficiency_levels.clone());
             spell_bind.internal_set_instructions(self.loaded_spell.clone());
         }
 
-        self.base_mut().get_tree().expect("Expected scene tree").get_root().expect("Expected root").add_child(&spell);
+        self.base_mut().add_child(&spell);
+        spell.set_position(self.base().get_global_position());
         self.spells_cast.push(spell);
 
-        self.energy_charged = 0.0;
+        self.focus_level -= FOCUS_LOSE_FROM_CASTING * self.energy_charged * self.energy_selected / self.max_power;
+        self.energy_charged -= self.energy_charged * self.energy_selected;
     }
 
     #[func]

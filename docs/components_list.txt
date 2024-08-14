@@ -3,6 +3,7 @@ utility:
 0 = give_velocity(x: float, y: float, z: float)
 1 = take_form(form: integer)
 2 = undo_form()
+3 = recharge_to(energy: float)
 
 logic:
 1000 = moving(speed: float) -> bool

@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use std::collections::HashMap;
 use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic};
 
-const FUNCTION_NAME_SIZE: usize = 30;
+const FUNCTION_NAME_SIZE: usize = 25;
 
 const ON_READY_NAME: &'static str = "when_created";
 const PROCESS_NAME: &'static str = "repeat";
@@ -24,6 +24,7 @@ lazy_static! {
         component_map.insert(pad_component_name("give_velocity"), 0);
         component_map.insert(pad_component_name("take_form"), 1);
         component_map.insert(pad_component_name("undo_form"), 2);
+        component_map.insert(pad_component_name("recharge_to"), 3);
 
         // Logic:
         component_map.insert(pad_component_name("moving"), 1000);
