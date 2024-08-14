@@ -5,9 +5,9 @@ Magical Entity handles the casting of spells and can take damage from spells.
 ### For a Player
 To start, make a new `MagicalEntity` node. The `MagicalEntity` node replaces the `CharacterBody3D` node that you would usually use while making a player. Now attach a script to this node, you can use the CharacterBody3D template for this, just make sure that at the top of the script there is the line `extends MagicalEntity`. 
 
-To handle the charging and creation of spells for you, you can use the line `self.handle_player_spell_casting(delta)` in your `_process` function. To make this line work through you will need to make a new action in the input map in your project settings called `cast`. You can map this to whatever button you want. The player holds the `cast` action/button down to charge spells and releases it to cast them. 
+To handle changing the magic properties of a `MagicalEntity`, you can use the line `self.handle_magic(delta)` in your `_process` function. `handle_magic` along with other things charges energy up for you, but to do so, you must set the property `charge` to true. I suggest using a button like 'q' to toggle charging on and off. With your charged energy, you can cast a spell, to do so, use the `cast_spell` method. To give the player the ability to choose how much of their charged energy they want to use, you can use the `change_energy_selected` method to vary the amount of energy selected between 0 (none of it) and 1 (all of it). I recommend using the scroll wheel for this.
 
-If you tried this out, you might notice the spell isn't doing anything... that's because you need to give it instructions! Instructions are written by the player and then translated into executable spell code. The following code can be used to translate spells:
+If you tried to cast your spell, you might notice the spell isn't doing anything... that's because you need to give it instructions! Instructions are written by the player and then translated into executable spell code. The following code can be used to translate spells:
 
 ```
 # Attempts to translate the instructions into executable format

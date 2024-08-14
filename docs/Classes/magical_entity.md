@@ -1,7 +1,7 @@
 # Magical Entity
 Inherits CharacterBody3D
 
-## Properties
+## Properties (Incomplete list)
 - health: float
 - shield: float
 
