@@ -44,11 +44,7 @@ pub struct MagicalEntity {
     #[export]
     health: f64,
     #[export]
-    shield: f64,
-    #[export]
     max_health: f64,
-    #[export]
-    max_shield: f64,
     loaded_spell: Vec<u64>,
     spells_cast: Vec<Gd<Spell>>,
     #[export]
@@ -75,9 +71,7 @@ impl ICharacterBody3D for MagicalEntity {
             component_catalogue: ComponentCatalogue::new(),
             spell_color: DEFAULT_COLOR.into_spell_color(),
             max_health: 0.0,
-            max_shield: 0.0,
             health: 0.0,
-            shield: 0.0,
             loaded_spell: Vec::new(),
             spells_cast: Vec::new(),
             energy_charged: 0.0,
@@ -112,17 +106,17 @@ impl MagicalEntity {
 #[godot_api]
 impl MagicalEntity {
     #[func]
-    pub fn get_health_and_shield(&self) -> f64 {
-        self.health + self.shield
+    pub fn get_energy_to_kill(&self) -> f64 {
+        self.health + self.energy_charged
     }
 
     #[func]
     pub fn take_damage(&mut self, energy: f64) {
-        if self.shield - energy > 0.0 {
-            self.shield -= energy;
+        if self.energy_charged - energy > 0.0 {
+            self.energy_charged -= energy;
         } else {
-            let energy_remaining = energy - self.shield;
-            self.shield = 0.0;
+            let energy_remaining = energy - self.energy_charged;
+            self.energy_charged = 0.0;
             if self.health - energy_remaining > 0.0 {
                 self.health -= energy_remaining;
             } else {
@@ -161,7 +155,7 @@ impl MagicalEntity {
             }
         });
 
-        self.max_control * self.get_focus() - spell_energies
+        self.max_control * self.get_focus() - spell_energies - self.energy_charged
     }
 
     #[func]
@@ -186,16 +180,16 @@ impl MagicalEntity {
 
         if self.charge {
             let extra_energy = self.get_power() * delta;
-            if control >= self.energy_charged + extra_energy {
-                self.energy_charged += extra_energy;
+            if control - extra_energy >= 0.0 {
+                self.energy_charged += extra_energy
             } else {
-                self.energy_charged = control;
+                self.energy_charged += control;
             }
         }
 
         self.reduce_energy_charged(delta);
         self.reduce_focus_due_to_energy_charged(delta);
-        self.passive_focus_stabilising(DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, delta); // TODO: Handle changing passive_focus_recharge_rate
+        self.passive_focus_stabilising(DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, delta); // TODO: Handle changing passive_focus_stabilising_rate
         self.fulfil_recharge_requests();
     }
 
@@ -246,12 +240,6 @@ impl MagicalEntity {
     fn cast_spell(&mut self) {
         if self.energy_charged * self.energy_selected < ENERGY_CONSIDERATION_LEVEL {
             return
-        }
-
-        let control = self.get_control();
-
-        if control < self.energy_charged {
-            self.energy_charged = control;
         }
 
         if self.check_allowed_to_cast {

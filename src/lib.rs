@@ -292,7 +292,7 @@ impl IArea3D for Spell {
                         let damage = self.damage / number_of_magical_entities as f64;
 
                         // Code ensures energy used is at max the magic_entities health and that if it can't do damage specified it does as much of that damage as it can before destroying itself
-                        let possible_damage = damage.min(bind_magical_entity.get_health_and_shield());
+                        let possible_damage = damage.min(bind_magical_entity.get_energy_to_kill());
 
                         if self.energy - possible_damage < ENERGY_CONSIDERATION_LEVEL {
                             bind_magical_entity.take_damage(self.energy);
