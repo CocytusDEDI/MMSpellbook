@@ -56,8 +56,7 @@ pub struct MagicalEntity {
     max_control: f64,
     #[export]
     max_power: f64,
-    #[export]
-    charge: bool,
+    charge_to: f64,
     component_efficiency_levels: HashMap<u64, f64>
 }
 
@@ -79,7 +78,7 @@ impl ICharacterBody3D for MagicalEntity {
             focus_level: 0.0,
             max_control: 100.0,
             max_power: 10.0,
-            charge: false,
+            charge_to: 0.0,
             component_efficiency_levels: HashMap::new()
         }
     }
@@ -175,16 +174,36 @@ impl MagicalEntity {
     }
 
     #[func]
+    fn change_charge_to(&mut self, change_amount: f64) {
+        let mut new_amount = self.charge_to + change_amount;
+        if new_amount > 1.0 {
+            new_amount = 1.0;
+        } else if new_amount < 0.0 {
+            new_amount = 0.0;
+        }
+        self.charge_to = new_amount;
+    }
+
+    #[func]
+    fn get_charge_to(&self) -> f64 {
+        self.charge_to
+    }
+
+    #[func]
     fn handle_magic(&mut self, delta: f64) {
         let control = self.get_control();
 
-        if self.charge {
-            let extra_energy = self.get_power() * delta;
-            if control - extra_energy >= 0.0 {
-                self.energy_charged += extra_energy
-            } else {
-                self.energy_charged += control;
-            }
+        let extra_energy = self.get_power() * delta;
+        let max_energy = self.max_control * self.charge_to;
+
+        if control >= extra_energy {
+            self.energy_charged += extra_energy;
+        } else {
+            self.energy_charged += control;
+        }
+
+        if self.energy_charged > max_energy {
+            self.energy_charged = max_energy;
         }
 
         self.reduce_energy_charged(delta);
