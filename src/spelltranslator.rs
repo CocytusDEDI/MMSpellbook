@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic};
+use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic, rpn_operations};
 
 const FUNCTION_NAME_SIZE: usize = 25;
 
@@ -133,7 +133,6 @@ fn get_associative_direction(operator: &str) -> Direction {
     }
 }
 
-#[derive(Debug)]
 enum Token {
     Opcode(String),
     Number(String),
@@ -176,16 +175,17 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                 tokens.push(Token::Opcode(opcode));
             },
             '-' => {
-                // if next character is - or +, collapse into one character
-                // if last token was value, push plus
-                // then, push (0 -
-                // if number or component make close_bracket = true
+                // Standardises all minus signs to be a subtraction
+                // If next character is - or +, collapse into one character
+                // If last token was value, push plus
+                // Then, push (0 -
+                // If number or component make close_bracket = true
                     // In number, add closing bracket if true
                     // In component, add extra closing bracket if true
-                // if open bracket, close_extra_bracket += 1
+                // If open bracket, close_extra_bracket += 1
                     // In closing bracket, add another closing bracket and decrease by one if greater than zero
 
-                // so ---(5 - (3 + 2)) = (0 - (5 + (0 - (3 + 2))))
+                // So ---(5 - (3 + 2)) = (0 - (5 + (0 - (3 + 2))))
 
                 characters.next();
                 let mut minus_count: usize = 1;
@@ -335,120 +335,52 @@ fn test_execute_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u
     };
 }
 
-/// Does a mock execution of the code where components are all evaulated to default return values and aren't actually run
+/// Does a mock execution of the if statement logic where components are all evaulated to default return values and aren't actually run
 fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
-    // TODO: Check that types are valid
-    let mut logic_iter = logic.iter();
+    let mut instructions_iter = logic.iter();
     let mut rpn_stack: Vec<u64> = Vec::new();
-    while let Some(&if_bits) = logic_iter.next() {
+    while let Some(&if_bits) = instructions_iter.next() {
         match if_bits {
             0 => break,
             100..=101 => rpn_stack.push(if_bits), // true and false
-            102 => rpn_stack.extend(vec![102, *logic_iter.next().ok_or_else(|| "Expected following value")?]), // if 102, next bits are a number literal
-            103 => { // Component
-                rpn_stack.extend(test_execute_component(&mut logic_iter)?);
-            }
-            200 => { // And statement
-                let bool_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
-                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
-                rpn_stack.push(boolean_logic::and(bool_one, bool_two)?);
-            },
-            201 => { // Or statement
-                let bool_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
-                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
-                rpn_stack.push(boolean_logic::or(bool_one, bool_two)?);
-            },
+            102 => rpn_stack.extend(vec![102, *instructions_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
+            103 => rpn_stack.extend(test_execute_component(&mut instructions_iter)?), // Component
+            200 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and)?, // And statement
+            201 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or)?, // Or statement
             202 => { // Not statement
-                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
+                let bool_one = rpn_stack.pop().expect("Expected value to compare");
                 rpn_stack.push(boolean_logic::not(bool_one)?);
             },
-            203 => { // Xor statement
-                let bool_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
-                let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
-                rpn_stack.push(boolean_logic::xor(bool_one, bool_two)?);
-            },
+            203 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor)?, // Xor statement
             300 => { // equals
-                let argument_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
-                let opcode_or_bool = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
+                let argument_two = rpn_stack.pop().ok_or("Expected value to compare")?;
+                let opcode_or_bool = rpn_stack.pop().ok_or("Expected value to compare")?;
                 if opcode_or_bool == 102 {
-                    let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                    let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+                    let argument_one = f64::from_bits(rpn_stack.pop().ok_or("Expected value to compare")?);
+                    let _ = rpn_stack.pop().ok_or("Expected number literal opcode")?;
                     if argument_one == f64::from_bits(argument_two) {
                         rpn_stack.push(100);
                     } else {
                         rpn_stack.push(101);
                     }
-                } else if opcode_or_bool == 100 || opcode_or_bool == 101 {
+                } else {
                     if opcode_or_bool == argument_two {
                         rpn_stack.push(100);
                     } else {
                         rpn_stack.push(101);
                     }
-                } else {
-                    return Err("Invalid equals comparison")
                 }
             },
-            301 => { // greater than
-                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                if argument_one > argument_two {
-                    rpn_stack.push(100);
-                } else {
-                    rpn_stack.push(101);
-                }
-            },
-            302 => { // lesser than
-                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                if argument_one < argument_two {
-                    rpn_stack.push(100);
-                } else {
-                    rpn_stack.push(101);
-                }
-            },
-            600 => { // multiply
-                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                rpn_stack.extend(vec![102, f64::to_bits(argument_one * argument_two)]);
-            }
-            601 => { // divide
-                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                rpn_stack.extend(vec![102, f64::to_bits(argument_one / argument_two)]);
-            }
-            602 => { // add
-                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                rpn_stack.extend(vec![102, f64::to_bits(argument_one + argument_two)]);
-            }
-            603 => { // subtract
-                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                rpn_stack.extend(vec![102, f64::to_bits(argument_one - argument_two)]);
-            }
-            604 => { // power
-                let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-                let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-                rpn_stack.extend(vec![102, f64::to_bits(argument_one.powf(argument_two))]);
-            }
-            _ => return Err("Invalid opcode")
+            301 => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b)?, // Greater than
+            302 => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b)?, // Lesser than
+            600 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b)?, // Multiply
+            601 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b)?, // Divide
+            602 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b)?, // Add
+            603 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b)?, // Subtract
+            604 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b))?, // Power
+            _ => return Err("Opcode doesn't exist")
         }
     }
-
     Ok(())
 }
 
