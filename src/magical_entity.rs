@@ -42,6 +42,8 @@ pub struct MagicalEntity {
     component_catalogue: ComponentCatalogue,
     spell_color: Color,
     #[export]
+    mass: f64,
+    #[export]
     health: f64,
     #[export]
     max_health: f64,
@@ -69,8 +71,9 @@ impl ICharacterBody3D for MagicalEntity {
             check_allowed_to_cast: true,
             component_catalogue: ComponentCatalogue::new(),
             spell_color: DEFAULT_COLOR.into_spell_color(),
-            max_health: 0.0,
+            mass: 0.0,
             health: 0.0,
+            max_health: 0.0,
             loaded_spell: Vec::new(),
             spells_cast: Vec::new(),
             energy_charged: 0.0,

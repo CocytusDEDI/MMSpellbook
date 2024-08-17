@@ -94,6 +94,8 @@ lazy_static! {
         component_map.insert(1, (component_functions::take_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
         component_map.insert(2, (component_functions::undo_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
         component_map.insert(3, (component_functions::recharge_to as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
+        component_map.insert(4, (component_functions::anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(5, (component_functions::undo_anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
 
         // Logic:
         component_map.insert(1000, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
@@ -139,6 +141,10 @@ struct Spell {
     density_range: f64, // TODO: Allow players to set their own density within their density range
     energy_lose_rate: f64,
     form_set: bool,
+    anchored_to: Option<Gd<MagicalEntity>>,
+    anchor_next_frame: bool,
+    undo_anchor_next_frame: bool,
+    first_physics_frame: bool,
     config: Config,
     velocity: Vector3,
     time: Option<Gd<Time>>,
@@ -164,6 +170,10 @@ impl IArea3D for Spell {
             density_range: DEFAULT_DENSITY_RANGE,
             energy_lose_rate: ENERGY_LOSE_RATE,
             form_set: false,
+            anchored_to: None,
+            anchor_next_frame: false,
+            undo_anchor_next_frame: false,
+            first_physics_frame: true,
             config: Config::get_config().unwrap_or_else(|error| {
                 godot_warn!("{}", error);
                 Config::default()
@@ -240,10 +250,40 @@ impl IArea3D for Spell {
 
     fn physics_process(&mut self, delta: f64) {
         // Handle velocity
-        let f32_delta: f32 = delta as f32;
-        let previous_position = self.base_mut().get_position();
-        let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
-        self.base_mut().set_position(new_position);
+        if let Some(ref mut anchored_to) = self.anchored_to {
+            let previous_velocity = anchored_to.get_velocity();
+            anchored_to.set_velocity(Vector3 { x: previous_velocity.x + self.velocity.x, y: previous_velocity.y + self.velocity.y, z: previous_velocity.z + self.velocity.z });
+            self.velocity = Vector3::ZERO;
+        } else {
+            let f32_delta: f32 = delta as f32;
+            let previous_position = self.base_mut().get_position();
+            let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
+            self.base_mut().set_position(new_position);
+        }
+
+        // Anchor if need to
+        if self.anchor_next_frame {
+            self.anchor();
+            if !self.first_physics_frame {
+                self.anchor_next_frame = false;
+            }
+        }
+
+        // Undo anchor if need to
+        if self.undo_anchor_next_frame {
+            if !self.first_physics_frame {
+                self.undo_anchor();
+                self.undo_anchor_next_frame = false;
+            }
+        }
+
+        self.first_physics_frame = false;
+
+        // Reduces energy due to anchor if there is one
+        if !self.surmount_anchor_resistance() {
+            self.free_spell();
+            return
+        }
 
         {
         let mut instructions = std::mem::take(&mut self.process_instructions);
@@ -270,7 +310,7 @@ impl IArea3D for Spell {
         }
 
         // Deal damage
-        if self.damage != 0.0 {
+        if self.damage != 0.0 && self.anchored_to == None {
             let objects = self.base().get_overlapping_bodies();
 
             let mut number_of_magical_entities: usize = 0;
@@ -312,7 +352,7 @@ impl IArea3D for Spell {
         self.energy -= self.energy * self.energy_lose_rate * delta;
 
         // Decreases the radius of the sphere if form isn't set
-        if !self.form_set && self.counter == 0 {
+        if !self.form_set && self.anchored_to == None && self.counter == 0 {
             // Radius changing of collision shape
             let radius = self.get_radius();
 
@@ -463,6 +503,71 @@ impl Spell {
         self.base_mut().queue_free();
     }
 
+    fn anchor(&mut self) {
+        let objects = self.base().get_overlapping_bodies();
+
+        for object in objects.iter_shared() {
+            if let Ok(magical_entity_object) = object.try_cast::<MagicalEntity>() {
+                self.base_mut().set_position(magical_entity_object.get_global_position());
+                self.anchored_to = Some(magical_entity_object);
+                self.base_mut().set_as_top_level(false);
+                self.set_csg_sphere_visibility(false);
+            }
+        }
+    }
+
+    fn undo_anchor(&mut self) {
+        self.base_mut().set_as_top_level(true);
+        let position = self.base().get_global_position();
+        match self.anchored_to {
+            Some(ref mut magical_entity) => magical_entity.set_position(position),
+            None => return
+        }
+        self.anchored_to = None;
+        if !self.form_set {
+            self.set_csg_sphere_visibility(true);
+        }
+    }
+
+    fn surmount_anchor_resistance(&mut self) -> bool {
+        let mut spell_owned = false;
+
+        let magical_entity_option = std::mem::take(&mut self.anchored_to);
+
+        if let Some(ref magical_entity) = magical_entity_option {
+            let bind_magical_entity = magical_entity.bind();
+            spell_owned = bind_magical_entity.owns_spell(self.to_gd())
+        }
+
+        self.anchored_to = magical_entity_option;
+
+        if let Some(ref mut magical_entity) = self.anchored_to {
+            let mut bind_magical_entity = magical_entity.bind_mut();
+
+            // Surmounting magical entity's charged energy
+            if !spell_owned {
+                let energy_charged = bind_magical_entity.get_energy_charged();
+                if self.energy >= energy_charged {
+                    bind_magical_entity.set_energy_charged(0.0);
+                    self.energy -= energy_charged;
+                } else {
+                    bind_magical_entity.set_energy_charged(energy_charged - self.energy);
+                    self.energy = 0.0;
+                    return false
+                }
+            }
+
+            // Surmounting magical entity's mass
+            self.energy -= bind_magical_entity.get_mass();
+
+            if !(self.energy > 0.0) {
+                return false
+            }
+        }
+
+        return true
+    }
+
     fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Vec<u64>, &'static str> {
         // Removes number literal opcodes
         let mut compressed_parameters: Vec<u64> = Vec::new();
@@ -541,8 +646,7 @@ impl Spell {
         let scene: Gd<PackedScene> = load(&form_config.path);
 
         self.form_set = true;
-        let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
-        csg_sphere.set_visible(false);
+        self.set_csg_sphere_visibility(false);
         let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
         instantiated_scene.set_name("form".into_godot());
         self.base_mut().add_child(instantiated_scene);
@@ -555,8 +659,14 @@ impl Spell {
         self.form_set = false;
         let form: Gd<Node> = self.base_mut().get_node_as("form".into_godot());
         form.free();
+        if self.anchored_to == None {
+            self.set_csg_sphere_visibility(true);
+        }
+    }
+
+    fn set_csg_sphere_visibility(&mut self, visible: bool) {
         let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
-        csg_sphere.set_visible(true);
+        csg_sphere.set_visible(visible);
     }
 
     fn check_if_parameter_allowed(parameter: &Vec<u64>, allowed_values: &Vec<u64>) -> Result<(), &'static str> {
@@ -662,7 +772,7 @@ impl Spell {
                             if let (Ok(start_range), Ok(stop_range)) = (numbers[0].trim().parse::<f64>(), numbers[1].trim().parse::<f64>()) {
                                 parsed_parameter_restrictions[index].extend(vec![102, f64::to_bits(start_range), 102, f64::to_bits(stop_range)]);
                             } else {
-                                panic!("Couldn't parse range")
+                                panic!("Couldn't parse the range: {} to {}", numbers[0], numbers[1]);
                             }
                         }
                     }

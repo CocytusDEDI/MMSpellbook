@@ -14,9 +14,9 @@ pub fn give_velocity(spell: &mut Spell, parameters: &[u64], should_execute: bool
         let new_velocity = spell.velocity + Vector3 {x: x_speed, y: y_speed, z: z_speed };
         spell.velocity = new_velocity;
         return None
-    } else {
-        return Some(vec![f64::to_bits((spell.energy / 2.0) * ((x_speed * x_speed + y_speed * y_speed + z_speed * z_speed) as f64).sqrt() / APPLY_TO_SPELL_COEFFICIENT)]) // E_K = (1/2)mv^2
     }
+
+    return Some(vec![f64::to_bits((spell.energy / 2.0) * ((x_speed * x_speed + y_speed * y_speed + z_speed * z_speed) as f64) / APPLY_TO_SPELL_COEFFICIENT)]) // E_K = (1/2)mv^2
 }
 
 pub fn take_form(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
@@ -51,6 +51,32 @@ pub fn recharge_to(spell: &mut Spell, parameters: &[u64], should_execute: bool) 
     }
 
     spell.energy_requested = energy_wanted - spell.energy;
+
+    return None
+}
+
+pub fn anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    if !should_execute {
+        return Some(vec![f64::to_bits(0.0)])
+    }
+
+    if spell.anchored_to != None {
+        return None
+    }
+
+    spell.base().get_overlapping_bodies();
+
+    spell.anchor_next_frame = true;
+
+    return None
+}
+
+pub fn undo_anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    if !should_execute {
+        return Some(vec![f64::to_bits(0.0)])
+    }
+
+    spell.undo_anchor_next_frame = true;
 
     return None
 }

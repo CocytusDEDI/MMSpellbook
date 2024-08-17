@@ -4,6 +4,8 @@ utility:
 1 = take_form(form: integer)
 2 = undo_form()
 3 = recharge_to(energy: float)
+4 = anchor()
+5 = undo_anchor()
 
 logic:
 1000 = moving(speed: float) -> bool
