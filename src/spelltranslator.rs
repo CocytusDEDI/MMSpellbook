@@ -26,6 +26,7 @@ lazy_static! {
         component_map.insert(pad_component_name("undo_form"), 2);
         component_map.insert(pad_component_name("recharge_to"), 3);
         component_map.insert(pad_component_name("anchor"), 4);
+        component_map.insert(pad_component_name("undo_anchor"), 5);
 
         // Logic:
         component_map.insert(pad_component_name("moving"), 1000);

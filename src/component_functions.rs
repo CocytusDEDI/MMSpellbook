@@ -1,6 +1,6 @@
 use godot::prelude::*;
 
-use crate::{Spell, MagicalEntity};
+use crate::Spell;
 
 const APPLY_TO_SPELL_COEFFICIENT: f64 = 70.0;
 
@@ -67,6 +67,16 @@ pub fn anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> O
     spell.base().get_overlapping_bodies();
 
     spell.anchor_next_frame = true;
+
+    return None
+}
+
+pub fn undo_anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    if !should_execute {
+        return Some(vec![f64::to_bits(0.0)])
+    }
+
+    spell.undo_anchor_next_frame = true;
 
     return None
 }
