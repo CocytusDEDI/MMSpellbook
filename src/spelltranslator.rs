@@ -354,7 +354,7 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                 rpn_stack.push(boolean_logic::not(bool_one)?);
             },
             203 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor)?, // Xor statement
-            300 => { // equals
+            300 => { // Equals statement
                 let argument_two = rpn_stack.pop().ok_or("Expected value to compare")?;
                 let opcode_or_bool = rpn_stack.pop().ok_or("Expected value to compare")?;
                 if opcode_or_bool == 102 {

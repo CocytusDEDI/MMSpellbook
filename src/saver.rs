@@ -80,6 +80,7 @@ impl Config {
 }
 
 impl StringConfig {
+    /// Consumes self and converts the `StringConfig` into a normal `Config` wrapped in a result
     fn into_config(self) -> Result<Config, &'static str> {
         let mut config = Config {forms: HashMap::new()};
         for (key, value) in &self.forms {

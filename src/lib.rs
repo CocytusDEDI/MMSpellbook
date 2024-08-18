@@ -16,6 +16,7 @@ use godot::classes::Shape3D;
 use godot::classes::StandardMaterial3D;
 use godot::classes::base_material_3d::Transparency;
 use godot::classes::base_material_3d::Feature;
+use godot::builtin::Basis;
 
 mod spelltranslator;
 mod component_functions;
@@ -35,6 +36,8 @@ const EFFICIENCY_INCREASE_RATE: f64 = 15.0;
 // Used to control how fast energy is lost passively over time. Is a fraction of total spell energy.
 const ENERGY_LOSE_RATE: f64 = 0.05;
 
+const MASS_MOVEMENT_COST: f64 = 0.5;
+
 // Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
 const SPELL_TRANSPARENCY: f32 = 0.9;
 
@@ -42,6 +45,8 @@ const RADIUS_UPDATE_RATE: usize = 7;
 
 const DEFAULT_DENSITY: f64 = 100.0;
 const DEFAULT_DENSITY_RANGE: f64 = 0.5;
+
+const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20); // In the format (rings, radial segments)
 
 #[derive(Serialize, Deserialize)]
 struct CustomColor {
@@ -108,6 +113,7 @@ lazy_static! {
     };
 }
 
+/// A process is a set of instructions used in the method `physics_process`. A process keeps track of when it should run using a counter.
 struct Process {
     counter: usize,
     frequency: usize,
@@ -133,27 +139,30 @@ impl Process {
 struct Spell {
     base: Base<Area3D>,
     energy: f64,
-    energy_requested: f64,
-    damage: f64,
     color: Color,
     counter: usize,
     density: f64,
     density_range: f64, // TODO: Allow players to set their own density within their density range
     energy_lose_rate: f64,
-    form_set: bool,
-    anchored_to: Option<Gd<MagicalEntity>>,
-    anchor_next_frame: bool,
-    undo_anchor_next_frame: bool,
     first_physics_frame: bool,
     config: Config,
-    velocity: Vector3,
-    time: Option<Gd<Time>>,
-    start_time: Option<u64>,
     component_catalogue: ComponentCatalogue,
     check_component_return_value: bool,
     ready_instructions: Vec<u64>,
     process_instructions: Vec<Process>,
-    component_efficiency_levels: HashMap<u64, f64>
+    component_efficiency_levels: HashMap<u64, f64>,
+
+    // Component fields
+    damage: f64,
+    energy_requested: f64,
+    original_direction: Basis,
+    velocity: Vector3,
+    time: Option<Gd<Time>>,
+    start_time: Option<u64>,
+    form_set: bool,
+    anchored_to: Option<Gd<MagicalEntity>>,
+    anchor_next_frame: bool,
+    undo_anchor_next_frame: bool,
 }
 
 #[godot_api]
@@ -162,30 +171,33 @@ impl IArea3D for Spell {
         Self {
             base,
             energy: 0.0,
-            energy_requested: 0.0,
-            damage: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
             counter: 0,
             density: DEFAULT_DENSITY,
             density_range: DEFAULT_DENSITY_RANGE,
             energy_lose_rate: ENERGY_LOSE_RATE,
-            form_set: false,
-            anchored_to: None,
-            anchor_next_frame: false,
-            undo_anchor_next_frame: false,
             first_physics_frame: true,
             config: Config::get_config().unwrap_or_else(|error| {
                 godot_warn!("{}", error);
                 Config::default()
             }),
-            velocity: Vector3::new(0.0, 0.0, 0.0),
-            time: None,
-            start_time: None,
             component_catalogue: ComponentCatalogue::new(),
             check_component_return_value: true,
             ready_instructions: Vec::new(),
             process_instructions: Vec::new(),
-            component_efficiency_levels: HashMap::new()
+            component_efficiency_levels: HashMap::new(),
+
+            // Component fields
+            damage: 0.0,
+            energy_requested: 0.0,
+            original_direction: Basis::default(),
+            velocity: Vector3::new(0.0, 0.0, 0.0),
+            time: None,
+            start_time: None,
+            form_set: false,
+            anchored_to: None,
+            anchor_next_frame: false,
+            undo_anchor_next_frame: false,
         }
     }
 
@@ -202,6 +214,15 @@ impl IArea3D for Spell {
             self.free_spell();
         }
 
+        // Get direction to move in
+        self.original_direction = match self.base().get_parent() {
+            Some(parent) => match parent.try_cast::<Node3D>() {
+                Ok(node3d) => node3d.get_transform().basis,
+                Err(_) => Basis::default()
+            },
+            None => Basis::default()
+        };
+
         // Creating visual representation of spell in godot
         let mut collision_shape = CollisionShape3D::new_alloc();
         collision_shape.set_name("spell_collision_shape".into_godot());
@@ -213,8 +234,8 @@ impl IArea3D for Spell {
         self.base_mut().add_child(collision_shape.upcast::<Node>());
         let mut csg_sphere = CsgSphere3D::new_alloc();
         csg_sphere.set_name("spell_csg_sphere".into_godot());
-        csg_sphere.set_radial_segments(20);
-        csg_sphere.set_rings(18);
+        csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
+        csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
         csg_sphere.set_radius(radius);
         let mut csg_material = StandardMaterial3D::new_gd();
 
@@ -252,13 +273,15 @@ impl IArea3D for Spell {
         // Handle velocity
         if let Some(ref mut anchored_to) = self.anchored_to {
             let previous_velocity = anchored_to.get_velocity();
-            anchored_to.set_velocity(Vector3 { x: previous_velocity.x + self.velocity.x, y: previous_velocity.y + self.velocity.y, z: previous_velocity.z + self.velocity.z });
+            let direction = (self.original_direction * self.velocity).normalized_or_zero();
+            anchored_to.set_velocity(previous_velocity + direction * self.velocity.length());
             self.velocity = Vector3::ZERO;
         } else {
             let f32_delta: f32 = delta as f32;
-            let previous_position = self.base_mut().get_position();
-            let new_position = previous_position + Vector3 {x: self.velocity.x * f32_delta, y: self.velocity.y * f32_delta, z: self.velocity.z * f32_delta};
-            self.base_mut().set_position(new_position);
+            let previous_position = self.base_mut().get_global_position();
+            let direction = (self.original_direction * self.velocity).normalized_or_zero();
+            let new_position = previous_position + direction * self.velocity.length() * f32_delta;
+            self.base_mut().set_global_position(new_position);
         }
 
         // Anchor if need to
@@ -277,6 +300,7 @@ impl IArea3D for Spell {
             }
         }
 
+        // Must be after anchor and undo anchor
         self.first_physics_frame = false;
 
         // Reduces energy due to anchor if there is one
@@ -285,9 +309,8 @@ impl IArea3D for Spell {
             return
         }
 
-        {
+        // handle instructions
         let mut instructions = std::mem::take(&mut self.process_instructions);
-
         for process in instructions.iter_mut() {
             // Handle instructions, frees the spell if it fails
 
@@ -305,9 +328,7 @@ impl IArea3D for Spell {
                 self.free_spell();
             }
         }
-
         self.process_instructions = instructions;
-        }
 
         // Deal damage
         if self.damage != 0.0 && self.anchored_to == None {
@@ -400,7 +421,7 @@ impl Spell {
                                 rpn_stack.push(boolean_logic::not(bool_one).unwrap_or_else(|err| panic!("{}", err)));
                             },
                             203 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor).unwrap_or_else(|err| panic!("{}", err)), // Xor statement
-                            300 => { // equals
+                            300 => { // Equals statement
                                 let argument_two = rpn_stack.pop().expect("Expected value to compare");
                                 let opcode_or_bool = rpn_stack.pop().expect("Expected value to compare");
                                 if opcode_or_bool == 102 {
@@ -558,7 +579,7 @@ impl Spell {
             }
 
             // Surmounting magical entity's mass
-            self.energy -= bind_magical_entity.get_mass();
+            self.energy -= bind_magical_entity.get_mass() * MASS_MOVEMENT_COST;
 
             if !(self.energy > 0.0) {
                 return false
