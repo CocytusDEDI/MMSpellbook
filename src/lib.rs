@@ -22,10 +22,15 @@ mod spelltranslator;
 mod component_functions;
 mod magical_entity;
 mod saver;
+mod opcode;
 
 use saver::*;
 use spelltranslator::*;
 use magical_entity::MagicalEntity;
+use opcode::*;
+use opcode::components::*;
+use opcode::spellcodes::*;
+use opcode::attributecodes::*;
 
 // When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
@@ -95,19 +100,19 @@ lazy_static! {
     static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
         // Utility:
-        component_map.insert(0, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
-        component_map.insert(1, (component_functions::take_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
-        component_map.insert(2, (component_functions::undo_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
-        component_map.insert(3, (component_functions::recharge_to as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
-        component_map.insert(4, (component_functions::anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
-        component_map.insert(5, (component_functions::undo_anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(GIVE_VELOCITY, (component_functions::give_velocity as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_0_ARGS, ReturnType::None));
+        component_map.insert(TAKE_FORM, (component_functions::take_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
+        component_map.insert(UNDO_FORM, (component_functions::undo_form as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(RECHARGE_TO, (component_functions::recharge_to as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
+        component_map.insert(ANCHOR, (component_functions::anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(UNDO_ANCHOR, (component_functions::undo_anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
 
         // Logic:
-        component_map.insert(1000, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
-        component_map.insert(1001, (component_functions::get_time as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::Float));
+        component_map.insert(MOVING, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
+        component_map.insert(GET_TIME, (component_functions::get_time as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::Float));
 
         // Power:
-        component_map.insert(2000, (component_functions::set_damage as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
+        component_map.insert(SET_DAMAGE, (component_functions::set_damage as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
 
         return component_map
     };
@@ -857,7 +862,7 @@ impl Spell {
         let mut codes = attributes.into_iter();
         while let Some(code) = codes.next() {
             match code {
-                0 => { // Set colour
+                COLOR => { // Set colour
                     match match vec![codes.next(), codes.next(), codes.next()].into_iter().collect::<Option<Vec<u64>>>(){ // Transpose vec of option into option of vec
                         Some(colour_vector) => colour_vector,
                         None => panic!("Invalid data: There should be three color values")

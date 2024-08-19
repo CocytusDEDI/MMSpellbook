@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic, rpn_operations};
+use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic, rpn_operations, opcode::components::*, opcode::attributecodes::*, opcode::spellcodes::*};
 
 const FUNCTION_NAME_SIZE: usize = 25;
 
@@ -21,19 +21,19 @@ lazy_static! {
         let mut component_map = HashMap::new();
 
         // Utility:
-        component_map.insert(pad_component_name("give_velocity"), 0);
-        component_map.insert(pad_component_name("take_form"), 1);
-        component_map.insert(pad_component_name("undo_form"), 2);
-        component_map.insert(pad_component_name("recharge_to"), 3);
-        component_map.insert(pad_component_name("anchor"), 4);
-        component_map.insert(pad_component_name("undo_anchor"), 5);
+        component_map.insert(pad_component_name("give_velocity"), GIVE_VELOCITY);
+        component_map.insert(pad_component_name("take_form"), TAKE_FORM);
+        component_map.insert(pad_component_name("undo_form"), UNDO_FORM);
+        component_map.insert(pad_component_name("recharge_to"), RECHARGE_TO);
+        component_map.insert(pad_component_name("anchor"), ANCHOR);
+        component_map.insert(pad_component_name("undo_anchor"), UNDO_ANCHOR);
 
         // Logic:
-        component_map.insert(pad_component_name("moving"), 1000);
-        component_map.insert(pad_component_name("get_time"), 1001);
+        component_map.insert(pad_component_name("moving"), MOVING);
+        component_map.insert(pad_component_name("get_time"), GET_TIME);
 
         // Power:
-        component_map.insert(pad_component_name("set_damage"), 2000);
+        component_map.insert(pad_component_name("set_damage"), SET_DAMAGE);
 
         component_map
     };
@@ -52,18 +52,14 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
         let trimmed_line = line.trim();
         if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphanumeric() || character == '_' || character == ' ') {
             match trimmed_line.trim_end_matches(':').split_whitespace().collect::<Vec<&str>>()[..] {
-                [ON_READY_NAME] => instructions.push(500),
+                [ON_READY_NAME] => instructions.push(READY_SECTION),
                 [PROCESS_NAME] => {
-                    instructions.extend(vec![501, 102, f64::to_bits(1.0)]);
+                    instructions.extend(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(1.0)]);
                 },
                 [PROCESS_NAME, "every", num] => {
-                    instructions.extend(vec![501, 102]);
-                    instructions.push(match num.parse::<u64>() {
-                        Ok(num) => f64::to_bits(num as f64),
-                        Err(_) => return Err("Invalid value found after keyword \"every\"")
-                    })
+                    instructions.extend(vec![PROCESS_SECTION, NUMBER_LITERAL, num.parse::<u64>().map(|num| f64::to_bits(num as f64)).map_err(|_| "Invalid value found after keyword \"every\"")?]);
                 },
-                [META_DATA_NAME] => instructions.push(502),
+                [META_DATA_NAME] => instructions.push(METADATA_SECTION),
                 _ => return Err("Invalid section name")
             };
             in_section = instructions.last().copied();
@@ -72,7 +68,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                 return Err("Must begin with section statement");
             }
 
-            if Some(502) == in_section {
+            if Some(METADATA_SECTION) == in_section {
                 if trimmed_line.contains('=') { // Indicates an assignment of metadata
                     instructions.extend(parse_about_line(trimmed_line)?);
                     continue
@@ -87,12 +83,12 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
             if trimmed_line.ends_with(")") { // Checking to see if component
                 instructions.extend(parse_component(trimmed_line)?);
             } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
-                instructions.push(400); // Indicates if statement
+                instructions.push(IF); // Indicates if statement
                 instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
                 instructions.push(0); // Indicates end of scope for logic
                 expected_closing_brackets += 1;
             } else if expected_closing_brackets > 0 && trimmed_line == "}" {
-                instructions.push(0);
+                instructions.push(END_OF_SCOPE);
                 expected_closing_brackets -= 1;
             } else if trimmed_line == "" {
                 continue
@@ -315,12 +311,12 @@ fn test_execute_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u
         let parameter = *instructions_iter.next().ok_or("expected parameter")?;
 
         match parameter {
-            100..=101 => parameters.push(parameter),
-            102 => {
+            TRUE..=FALSE => parameters.push(parameter),
+            NUMBER_LITERAL => {
                 parameters.push(parameter);
                 parameters.push(*instructions_iter.next().ok_or("Expected number after number literal opcode")?);
             },
-            103 => parameters.extend(test_execute_component(instructions_iter)?),
+            COMPONENT => parameters.extend(test_execute_component(instructions_iter)?),
             _ => return Err("Invalid parameter")
         }
     }
@@ -328,8 +324,8 @@ fn test_execute_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u
     return match COMPONENT_TO_FUNCTION_MAP.get(component_code) {
         Some((_, _, return_type)) => {
             match *return_type {
-                ReturnType::Float => Ok(vec![102, 0]),
-                ReturnType::Boolean => Ok(vec![100]),
+                ReturnType::Float => Ok(vec![NUMBER_LITERAL, 0]),
+                ReturnType::Boolean => Ok(vec![TRUE]),
                 ReturnType::None => return Err("Expected return from component")
             }
         },
@@ -343,43 +339,43 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
     let mut rpn_stack: Vec<u64> = Vec::new();
     while let Some(&if_bits) = instructions_iter.next() {
         match if_bits {
-            0 => break,
-            100..=101 => rpn_stack.push(if_bits), // true and false
-            102 => rpn_stack.extend(vec![102, *instructions_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
-            103 => rpn_stack.extend(test_execute_component(&mut instructions_iter)?), // Component
-            200 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and)?, // And statement
-            201 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or)?, // Or statement
-            202 => { // Not statement
-                let bool_one = rpn_stack.pop().expect("Expected value to compare");
+            END_OF_SCOPE => break,
+            TRUE..=FALSE => rpn_stack.push(if_bits), // true and false
+            NUMBER_LITERAL => rpn_stack.extend(vec![NUMBER_LITERAL, *instructions_iter.next().ok_or("Expected following value")?]), // if 102, next bits are a number literal
+            COMPONENT => rpn_stack.extend(test_execute_component(&mut instructions_iter)?), // Component
+            AND => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and)?, // And statement
+            OR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or)?, // Or statement
+            NOT => { // Not statement
+                let bool_one = rpn_stack.pop().ok_or("Expected value to compare")?;
                 rpn_stack.push(boolean_logic::not(bool_one)?);
             },
-            203 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor)?, // Xor statement
-            300 => { // Equals statement
+            XOR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor)?, // Xor statement
+            EQUALS => { // Equals statement
                 let argument_two = rpn_stack.pop().ok_or("Expected value to compare")?;
                 let opcode_or_bool = rpn_stack.pop().ok_or("Expected value to compare")?;
-                if opcode_or_bool == 102 {
+                if opcode_or_bool == NUMBER_LITERAL {
                     let argument_one = f64::from_bits(rpn_stack.pop().ok_or("Expected value to compare")?);
                     let _ = rpn_stack.pop().ok_or("Expected number literal opcode")?;
                     if argument_one == f64::from_bits(argument_two) {
-                        rpn_stack.push(100);
+                        rpn_stack.push(TRUE);
                     } else {
-                        rpn_stack.push(101);
+                        rpn_stack.push(FALSE);
                     }
                 } else {
                     if opcode_or_bool == argument_two {
-                        rpn_stack.push(100);
+                        rpn_stack.push(TRUE);
                     } else {
-                        rpn_stack.push(101);
+                        rpn_stack.push(FALSE);
                     }
                 }
             },
-            301 => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b)?, // Greater than
-            302 => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b)?, // Lesser than
-            600 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b)?, // Multiply
-            601 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b)?, // Divide
-            602 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b)?, // Add
-            603 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b)?, // Subtract
-            604 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b))?, // Power
+            GREATER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b)?, // Greater than
+            LESSER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b)?, // Lesser than
+            MULTIPLY => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b)?, // Multiply
+            DIVIDE => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b)?, // Divide
+            ADD => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b)?, // Add
+            SUBTRACT => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b)?, // Subtract
+            POWER => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b))?, // Power
             _ => return Err("Opcode doesn't exist")
         }
     }
@@ -436,22 +432,22 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
     let mut bit_conditions: Vec<u64> = vec![];
     for condition in output {
         match condition.as_str() {
-            "and" => bit_conditions.push(200),
-            "or" => bit_conditions.push(201),
-            "not" => bit_conditions.push(202),
-            "xor" => bit_conditions.push(203),
-            "==" | "=" => bit_conditions.push(300),
-            ">" => bit_conditions.push(301),
-            "<" => bit_conditions.push(302),
-            "*" => bit_conditions.push(600),
-            "/" => bit_conditions.push(601),
-            "+" => bit_conditions.push(602),
-            "-" => bit_conditions.push(603),
-            "^" => bit_conditions.push(604),
-            "true" => bit_conditions.push(100),
-            "false" => bit_conditions.push(101),
+            "and" => bit_conditions.push(AND),
+            "or" => bit_conditions.push(OR),
+            "not" => bit_conditions.push(NOT),
+            "xor" => bit_conditions.push(XOR),
+            "==" | "=" => bit_conditions.push(EQUALS),
+            ">" => bit_conditions.push(GREATER_THAN),
+            "<" => bit_conditions.push(LESSER_THAN),
+            "*" => bit_conditions.push(MULTIPLY),
+            "/" => bit_conditions.push(DIVIDE),
+            "+" => bit_conditions.push(ADD),
+            "-" => bit_conditions.push(SUBTRACT),
+            "^" => bit_conditions.push(POWER),
+            "true" => bit_conditions.push(TRUE),
+            "false" => bit_conditions.push(FALSE),
             number if number.parse::<f64>().is_ok() => {
-                bit_conditions.push(102); // Indicates number literal
+                bit_conditions.push(NUMBER_LITERAL); // Indicates number literal
                 bit_conditions.push(number.parse::<f64>().unwrap().to_bits());
             }
             possible_component => {
@@ -530,10 +526,10 @@ enum Parameter {
 impl Parameter {
     fn to_bits(&self) -> Result<Vec<u64>, &'static str> {
         match self {
-            Parameter::Float(float) => Ok(vec![102, float.to_bits()]),
+            Parameter::Float(float) => Ok(vec![NUMBER_LITERAL, float.to_bits()]),
             Parameter::Boolean(boolean) => match boolean {
-                true => Ok(vec![100]),
-                false => Ok(vec![101])
+                true => Ok(vec![TRUE]),
+                false => Ok(vec![FALSE])
             },
             Parameter::Component(component) => parse_component(&component)
         }
@@ -612,7 +608,8 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
     
     match (name.trim(), value.trim()) {
         ("colour", values) | ("color", values) => {
-            let numbers = match match values.strip_prefix('[')
+            let mut opcodes = vec![0];
+            opcodes.extend(match match values.strip_prefix('[')
             .and_then(|x| x.strip_suffix(']'))
             .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?
             .split(',')
@@ -631,8 +628,8 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
                 }
             }.into_iter()
             .map(|x| f64::to_bits(x as f64))
-            .collect::<Vec<u64>>();
-            Ok(vec![0].into_iter().chain(numbers.into_iter()).collect())
+            .collect::<Vec<u64>>());
+            Ok(opcodes)
         },
         _ => Err("Unkown attribute: undefined attribute")
     }
@@ -650,34 +647,34 @@ mod tests {
 
     #[test]
     fn parse_basic_booleans() {
-        assert_eq!(parse_logic("true and false or true"), Ok(vec![100, 101, 200, 100, 201]));
+        assert_eq!(parse_logic("true and false or true"), Ok(vec![TRUE, FALSE, AND, TRUE, OR]));
     }
 
     #[test]
     fn parse_basic_spell() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![500, 103, 0, 102, f64::to_bits(1.0), 102, f64::to_bits(1.0), 102, f64::to_bits(1.0)]))
+        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![READY_SECTION, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
     }
 
     #[test]
     fn parse_basic_repeat() {
-        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)"), Ok(vec![501, 102, f64::to_bits(1.0), 103, 0, 102, f64::to_bits(1.0), 102, f64::to_bits(1.0), 102, f64::to_bits(1.0)]))
+        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)"), Ok(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(1.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
     }
 
     #[test]
     fn parse_advanced_repeat() {
-        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, f64::to_bits(2.0), 103, 0, 102, 0, 102, 0, 102, 0]))
+        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)"), Ok(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(2.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
     #[test]
     fn parse_advanced_repeat_with_irregular_spacing() {
-        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![501, 102, f64::to_bits(3.0), 103, 0, 102, 0, 102, 0, 102, 0]))
+        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(3.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
 
     #[test]
     fn parse_spell_color() {
-        assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
-        assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+        assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+        assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
     }
     
     #[test]
@@ -690,32 +687,32 @@ mod tests {
 
     #[test]
     fn parse_spell_color_with_irregular_spacing() {
-        assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![0, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
+        assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![COLOR, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
     }
 
     #[test]
     fn parse_about_section(){
-        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![502, 0, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
+        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![METADATA_SECTION, COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
     }
 
     #[test]
     fn parse_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 0, 103, 0, 102, f64::to_bits(1.0), 102, 0, 102, 0, 0]))
+        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![READY_SECTION, IF, FALSE, 0, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, 0]))
     }
 
     #[test]
     fn parse_advanced_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![500, 400, 101, 103, 1001, 102, f64::to_bits(5.0), 301, 201, 0, 103, 0, 102, f64::to_bits(1.0), 102, 0, 102, 0, 0]))
+        assert_eq!(parse_spell("when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![READY_SECTION, IF, FALSE, COMPONENT, GET_TIME, NUMBER_LITERAL, f64::to_bits(5.0), GREATER_THAN, OR, 0, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, 0]))
     }
 
     #[test]
     fn parse_component_as_parameter() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)"), Ok(vec![500, 103, 0, 103, 1001, 102, 0, 102, 0]))
+        assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)"), Ok(vec![READY_SECTION, COMPONENT, GIVE_VELOCITY, COMPONENT, GET_TIME, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
     #[test]
     fn parse_complex_spell() {
-        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![502,0,f64::to_bits(1.0),0,f64::to_bits(1.0),500,103,0,102,f64::to_bits(1.0),102,0,102,0,501,102,f64::to_bits(5.0),103,0,102,f64::to_bits(0.1),102,0,102,0]))
+        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![METADATA_SECTION, COLOR,f64::to_bits(1.0),0,f64::to_bits(1.0),READY_SECTION,COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(1.0),NUMBER_LITERAL,0,NUMBER_LITERAL,0,PROCESS_SECTION,NUMBER_LITERAL,f64::to_bits(5.0),COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(0.1),NUMBER_LITERAL,0,NUMBER_LITERAL,0]))
     }
 
     /// Ensures all components in the COMPONENT_TO_NUM_MAP are in the COMPONENT_TO_FUNCTION_MAP
