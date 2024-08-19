@@ -81,6 +81,16 @@ pub fn undo_anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool)
     return None
 }
 
+pub fn perish(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+    if !should_execute {
+        return Some(vec![f64::to_bits(0.0)])
+    }
+
+    spell.perish();
+
+    return None
+}
+
 // Logic:
 
 pub fn get_time(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {

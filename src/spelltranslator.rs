@@ -27,6 +27,7 @@ lazy_static! {
         component_map.insert(pad_component_name("recharge_to"), RECHARGE_TO);
         component_map.insert(pad_component_name("anchor"), ANCHOR);
         component_map.insert(pad_component_name("undo_anchor"), UNDO_ANCHOR);
+        component_map.insert(pad_component_name("perish"), PERISH);
 
         // Logic:
         component_map.insert(pad_component_name("moving"), MOVING);
@@ -608,7 +609,7 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
     
     match (name.trim(), value.trim()) {
         ("colour", values) | ("color", values) => {
-            let mut opcodes = vec![0];
+            let mut opcodes = vec![COLOR];
             opcodes.extend(match match values.strip_prefix('[')
             .and_then(|x| x.strip_suffix(']'))
             .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?

@@ -34,7 +34,7 @@ use codes::attributecodes::*;
 use codes::opcodes::*;
 
 // When a spell has energy below this level it is discarded as being insignificant
-pub const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
+pub const ENERGY_CONSIDERATION_LEVEL: f64 = 0.1;
 
 // Used to control how fast efficiency increases with each cast
 const EFFICIENCY_INCREASE_RATE: f64 = 15.0;
@@ -47,10 +47,11 @@ const MASS_MOVEMENT_COST: f64 = 0.5;
 // Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
 const SPELL_TRANSPARENCY: f32 = 0.9;
 
-const RADIUS_UPDATE_RATE: usize = 7;
+const RADIUS_UPDATE_RATE: usize = 5;
 
-const DEFAULT_DENSITY: f64 = 100.0;
-const DEFAULT_DENSITY_RANGE: f64 = 0.5;
+const ENERGY_TO_VOLUME: f32 = 0.01;
+
+const VOLUME_TO_RADIUS: f32 = 0.3;
 
 const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20); // In the format (rings, radial segments)
 
@@ -107,6 +108,7 @@ lazy_static! {
         component_map.insert(RECHARGE_TO, (component_functions::recharge_to as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::None));
         component_map.insert(ANCHOR, (component_functions::anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
         component_map.insert(UNDO_ANCHOR, (component_functions::undo_anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(PERISH, (component_functions::perish as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
 
         // Logic:
         component_map.insert(MOVING, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
@@ -144,11 +146,12 @@ impl Process {
 #[class(base=Area3D)]
 struct Spell {
     base: Base<Area3D>,
+    #[export]
     energy: f64,
+    #[export]
     color: Color,
     counter: usize,
-    density: f64,
-    density_range: f64, // TODO: Allow players to set their own density within their density range
+    #[export]
     energy_lose_rate: f64,
     first_physics_frame: bool,
     config: Config,
@@ -179,8 +182,6 @@ impl IArea3D for Spell {
             energy: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
             counter: 0,
-            density: DEFAULT_DENSITY,
-            density_range: DEFAULT_DENSITY_RANGE,
             energy_lose_rate: ENERGY_LOSE_RATE,
             first_physics_frame: true,
             config: Config::get_config().unwrap_or_else(|error| {
@@ -217,7 +218,7 @@ impl IArea3D for Spell {
         }
 
         if self.energy <= 0.0 {
-            self.free_spell();
+            self.perish();
         }
 
         // Get direction to move in
@@ -266,12 +267,12 @@ impl IArea3D for Spell {
         // Frees the spell if it ran out of energy to cast a component
         match spell_result {
             Ok(()) => {},
-            Err(_) => self.free_spell()
+            Err(_) => self.perish()
         };
 
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
-            self.free_spell();
+            self.perish();
         }
     }
 
@@ -311,7 +312,7 @@ impl IArea3D for Spell {
 
         // Reduces energy due to anchor if there is one
         if !self.surmount_anchor_resistance() {
-            self.free_spell();
+            self.perish();
             return
         }
 
@@ -326,12 +327,12 @@ impl IArea3D for Spell {
 
             match self.spell_virtual_machine(&process.instructions) {
                 Ok(()) => {},
-                Err(_) => self.free_spell()
+                Err(_) => self.perish()
             }
 
             // Check if spell should be deleted due to lack of energy
             if self.energy < ENERGY_CONSIDERATION_LEVEL {
-                self.free_spell();
+                self.perish();
             }
         }
         self.process_instructions = instructions;
@@ -363,7 +364,7 @@ impl IArea3D for Spell {
 
                         if self.energy - possible_damage < ENERGY_CONSIDERATION_LEVEL {
                             bind_magical_entity.take_damage(self.energy);
-                            self.free_spell();
+                            self.perish();
                             return;
                         }
 
@@ -397,7 +398,7 @@ impl IArea3D for Spell {
 
         // Check if spell should be deleted due to lack of energy
         if self.energy < ENERGY_CONSIDERATION_LEVEL {
-            self.free_spell();
+            self.perish();
         }
     }
 }
@@ -526,7 +527,7 @@ impl Spell {
         return self.call_component(component_code, parameters)
     }
 
-    fn free_spell(&mut self) {
+    fn perish(&mut self) {
         self.base_mut().queue_free();
     }
 
@@ -649,11 +650,11 @@ impl Spell {
     }
 
     fn get_radius(&self) -> f32 {
-        ((3.0 * self.get_volume()) / (4.0 * PI)).powf(1.0 / 3.0)
+        ((3.0 * self.get_volume()) / (4.0 * PI)).powf(1.0 / 3.0) * VOLUME_TO_RADIUS
     }
 
     fn get_volume(&self) -> f32 {
-        (self.energy / self.density) as f32
+        f32::ln(ENERGY_TO_VOLUME * (self.energy as f32) + 1.0).powi(2)
     }
 
     fn get_number_of_component_parameters(component_code: &u64) -> usize {
@@ -991,38 +992,6 @@ impl Spell {
     #[func]
     fn get_check_component_return_value(&self) -> bool {
         self.check_component_return_value
-    }
-
-    #[func]
-    fn set_energy(&mut self, energy: f64) {
-        self.energy = energy;
-    }
-
-    #[func]
-    fn get_energy(&self) -> f64 {
-        self.energy
-    }
-
-    /// The parameter `energy_lose_rate` is a fraction of the total energy of the spell, not a constant amount and should range between 0 and 1
-    #[func]
-    fn set_energy_lose_rate(&mut self, energy_lose_rate: f64) {
-        self.energy_lose_rate = energy_lose_rate;
-    }
-
-    #[func]
-    fn get_energy_lose_rate(&self) -> f64 {
-        self.energy_lose_rate
-    }
-
-    /// Requires Color(r, g, b) where r, g and b are floats ranging from 0 to 1
-    #[func]
-    fn set_color(&mut self, color: Color) {
-        self.color = Color::from_rgba(color.r, color.g, color.b, SPELL_TRANSPARENCY);
-    }
-
-    #[func]
-    fn get_color(&self) -> Color {
-        Color::from_rgb(self.color.r as f32, self.color.g as f32, self.color.b as f32)
     }
 
     /// Once `connect_player()` is called, whenever a component is cast, the provided node's `increase_component_efficiency` method will be called

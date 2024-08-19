@@ -5,6 +5,7 @@ pub const UNDO_FORM: u64 = 2;
 pub const RECHARGE_TO: u64 = 3;
 pub const ANCHOR: u64 = 4;
 pub const UNDO_ANCHOR: u64 = 5;
+pub const PERISH: u64 = 6;
 
 // logic components
 pub const MOVING: u64 = 1000;
