@@ -12,5 +12,3 @@ pub const GET_TIME: u64 = 1001;
 
 // power components
 pub const SET_DAMAGE: u64 = 2000;
-
-// planned components (could change)

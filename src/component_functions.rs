@@ -1,6 +1,6 @@
 use godot::prelude::*;
 
-use crate::{Spell, opcode::spellcodes::*};
+use crate::{Spell, codes::opcodes::*};
 
 const APPLY_TO_SPELL_COEFFICIENT: f64 = 70.0;
 
@@ -85,7 +85,7 @@ pub fn undo_anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool)
 
 pub fn get_time(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![102, f64::to_bits(0.1)]) // TODO: Should be set in config
+        return Some(vec![NUMBER_LITERAL, f64::to_bits(0.1)]) // TODO: Should be set in config
     }
 
     let current_time = match spell.time {
@@ -98,7 +98,7 @@ pub fn get_time(spell: &mut Spell, _parameters: &[u64], should_execute: bool) ->
         None => panic!("Time wasn't created")
     };
 
-    return Some(vec![102, f64::to_bits((current_time.get_ticks_msec() - start_time) as f64 / 1000.0)])
+    return Some(vec![NUMBER_LITERAL, f64::to_bits((current_time.get_ticks_msec() - start_time) as f64 / 1000.0)])
 }
 
 pub fn moving(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {

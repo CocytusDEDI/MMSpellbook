@@ -1,3 +1,5 @@
+use codes::opcodes::END_OF_SCOPE;
+use codes::opcodes::TRUE;
 use lazy_static::lazy_static;
 use serde_json::{Value, json};
 use serde::{Deserialize, Serialize};
@@ -22,15 +24,14 @@ mod spelltranslator;
 mod component_functions;
 mod magical_entity;
 mod saver;
-mod opcode;
+mod codes;
 
 use saver::*;
 use spelltranslator::*;
 use magical_entity::MagicalEntity;
-use opcode::*;
-use opcode::components::*;
-use opcode::spellcodes::*;
-use opcode::attributecodes::*;
+use codes::componentcodes::*;
+use codes::attributecodes::*;
+use codes::opcodes::*;
 
 // When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 1.0;
@@ -415,58 +416,58 @@ impl Spell {
                     let mut rpn_stack: Vec<u64> = Vec::new();
                     while let Some(&if_bits) = instructions_iter.next() {
                         match if_bits {
-                            0 => break,
-                            100..=101 => rpn_stack.push(if_bits), // true and false
-                            102 => rpn_stack.extend(vec![102, *instructions_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
-                            103 => rpn_stack.extend(self.execute_component(&mut instructions_iter)?), // Component
-                            200 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and).unwrap_or_else(|err| panic!("{}", err)), // And statement
-                            201 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or).unwrap_or_else(|err| panic!("{}", err)), // Or statement
-                            202 => { // Not statement
+                            END_OF_SCOPE => break,
+                            TRUE..=FALSE => rpn_stack.push(if_bits), // true and false
+                            NUMBER_LITERAL => rpn_stack.extend(vec![NUMBER_LITERAL, *instructions_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
+                            COMPONENT => rpn_stack.extend(self.execute_component(&mut instructions_iter)?), // Component
+                            AND => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and).unwrap_or_else(|err| panic!("{}", err)), // And statement
+                            OR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or).unwrap_or_else(|err| panic!("{}", err)), // Or statement
+                            NOT => { // Not statement
                                 let bool_one = rpn_stack.pop().expect("Expected value to compare");
                                 rpn_stack.push(boolean_logic::not(bool_one).unwrap_or_else(|err| panic!("{}", err)));
                             },
-                            203 => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor).unwrap_or_else(|err| panic!("{}", err)), // Xor statement
-                            300 => { // Equals statement
+                            XOR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor).unwrap_or_else(|err| panic!("{}", err)), // Xor statement
+                            EQUALS => { // Equals statement
                                 let argument_two = rpn_stack.pop().expect("Expected value to compare");
                                 let opcode_or_bool = rpn_stack.pop().expect("Expected value to compare");
-                                if opcode_or_bool == 102 {
+                                if opcode_or_bool == NUMBER_LITERAL {
                                     let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
                                     let _ = rpn_stack.pop().expect("Expected number literal opcode");
                                     if argument_one == f64::from_bits(argument_two) {
-                                        rpn_stack.push(100);
+                                        rpn_stack.push(TRUE);
                                     } else {
-                                        rpn_stack.push(101);
+                                        rpn_stack.push(FALSE);
                                     }
                                 } else {
                                     if opcode_or_bool == argument_two {
-                                        rpn_stack.push(100);
+                                        rpn_stack.push(TRUE);
                                     } else {
-                                        rpn_stack.push(101);
+                                        rpn_stack.push(FALSE);
                                     }
                                 }
                             },
-                            301 => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b).unwrap_or_else(|err| panic!("{}", err)), // Greater than
-                            302 => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b).unwrap_or_else(|err| panic!("{}", err)), // Lesser than
-                            600 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b).unwrap_or_else(|err| panic!("{}", err)), // Multiply
-                            601 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b).unwrap_or_else(|err| panic!("{}", err)), // Divide
-                            602 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b).unwrap_or_else(|err| panic!("{}", err)), // Add
-                            603 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b).unwrap_or_else(|err| panic!("{}", err)), // Subtract
-                            604 => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b)).unwrap_or_else(|err| panic!("{}", err)), // Power
+                            GREATER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b).unwrap_or_else(|err| panic!("{}", err)), // Greater than
+                            LESSER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b).unwrap_or_else(|err| panic!("{}", err)), // Lesser than
+                            MULTIPLY => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b).unwrap_or_else(|err| panic!("{}", err)), // Multiply
+                            DIVIDE => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b).unwrap_or_else(|err| panic!("{}", err)), // Divide
+                            ADD => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b).unwrap_or_else(|err| panic!("{}", err)), // Add
+                            SUBTRACT => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b).unwrap_or_else(|err| panic!("{}", err)), // Subtract
+                            POWER => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b)).unwrap_or_else(|err| panic!("{}", err)), // Power
                             _ => panic!("Opcode doesn't exist")
                         };
                     }
                     match rpn_stack.pop().expect("Expected final bool") {
-                        100 => {}, // if true, execute by going back into normal loop
-                        101 => { // if false, skip to the end of scope
+                        TRUE => {}, // if true, execute by going back into normal loop
+                        FALSE => { // if false, skip to the end of scope
                             let mut skip_amount: usize = 1;
                             while let Some(&skipping_bits) = instructions_iter.next() {
                                 match skipping_bits {
-                                    0 => skip_amount -= 1, // If end of scope
-                                    102 => _ = instructions_iter.next(), // Ignores number literals
-                                    103 => {
+                                    END_OF_SCOPE => skip_amount -= 1, // If end of scope
+                                    NUMBER_LITERAL => _ = instructions_iter.next(), // Ignores number literals
+                                    COMPONENT => {
                                         self.skip_component(&mut instructions_iter);
                                     }
-                                    400 => skip_amount += 2, // Ignore next two end of scopes because if statements have two end of scopes
+                                    IF => skip_amount += 2, // Ignore next two end of scopes because if statements have two end of scopes
                                     _ => {}
                                 }
                                 if skip_amount == 0 {
@@ -489,9 +490,9 @@ impl Spell {
         for _ in 0..number_of_component_parameters {
             let parameter = *instructions_iter.next().expect("Expected parameter");
             match parameter {
-                100..=101 => {},
-                102 => _ = *instructions_iter.next().expect("Expected number after number literal opcode"),
-                103 => _ = self.execute_component(instructions_iter),
+                TRUE..=FALSE => {},
+                NUMBER_LITERAL => _ = *instructions_iter.next().expect("Expected number after number literal opcode"),
+                COMPONENT => _ = self.execute_component(instructions_iter),
                 _ => panic!("Invalid parameter skipped")
             };
         }
@@ -504,12 +505,12 @@ impl Spell {
         for parameter_number in 0..number_of_component_parameters {
             let parameter = *instructions_iter.next().expect("Expected parameter");
             match parameter {
-                100..=101 => parameters.push(parameter),
-                102 => {
+                TRUE..=FALSE => parameters.push(parameter),
+                NUMBER_LITERAL => {
                     parameters.push(parameter);
                     parameters.push(*instructions_iter.next().expect("Expected number after number literal opcode"));
                 },
-                103 => {
+                COMPONENT => {
                     let component_return = self.execute_component(instructions_iter)?;
                     // Checks if component return is an allowed parameter as it can't be known at compile time
                     if self.check_component_return_value {
@@ -598,10 +599,10 @@ impl Spell {
         // Removes number literal opcodes
         let mut compressed_parameters: Vec<u64> = Vec::new();
         let mut parameter_iter = parameters.iter();
-        while let Some(parameter) = parameter_iter.next() {
+        while let Some(&parameter) = parameter_iter.next() {
             match parameter {
-                102 => compressed_parameters.push(*parameter_iter.next().expect("Expected parameter after number literal opcode")),
-                100..=101 => compressed_parameters.push(*parameter),
+                NUMBER_LITERAL => compressed_parameters.push(*parameter_iter.next().expect("Expected parameter after number literal opcode")),
+                TRUE..=FALSE => compressed_parameters.push(parameter),
                 _ => panic!("Invalid parameter: isn't float or boolean")
             }
         }
@@ -698,31 +699,31 @@ impl Spell {
     fn check_if_parameter_allowed(parameter: &Vec<u64>, allowed_values: &Vec<u64>) -> Result<(), &'static str> {
         let mut allowed_iter = allowed_values.iter();
         match parameter[0] {
-            100 => {
+            TRUE => {
                 while let Some(&value) = allowed_iter.next() {
-                    if value == 100 || value == 104 {
+                    if value == TRUE || value == ANY {
                         return Ok(())
                     }
                 }
             },
-            101 => {
+            FALSE => {
                 while let Some(&value) = allowed_iter.next() {
-                    if value == 101 || value == 104 {
+                    if value == FALSE || value == ANY {
                         return Ok(())
                     }
                 }
             },
-            102 => {
+            NUMBER_LITERAL => {
                 while let Some(&value) = allowed_iter.next() {
-                    if value == 104 {
+                    if value == ANY {
                         return Ok(())
                     }
                     let start_float_range = match value {
-                        102 => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
+                        NUMBER_LITERAL => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
                         _ => return Err("Invalid type: Expected float")
                     };
-                    let stop_float_range = match allowed_iter.next().expect("Expected range of numbers") {
-                        102 => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
+                    let stop_float_range = match *allowed_iter.next().expect("Expected range of numbers") {
+                        NUMBER_LITERAL => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
                         _ => return Err("Invalid type: Expected float")
                     };
                     let range = start_float_range..=stop_float_range;
@@ -744,10 +745,10 @@ impl Spell {
 
         for index in 0..number_of_component_parameters {
             let parameter = match *instructions_iter.next().expect("Expected parameter") {
-                100 => vec![100],
-                101 => vec![101],
-                102 => vec![102, *instructions_iter.next().expect("Expected parameter")],
-                103 => {
+                TRUE => vec![TRUE],
+                FALSE => vec![FALSE],
+                NUMBER_LITERAL => vec![NUMBER_LITERAL, *instructions_iter.next().expect("Expected parameter")],
+                COMPONENT => {
                     _ = instructions_iter.next();
                     continue
                 },
@@ -766,9 +767,9 @@ impl Spell {
                 continue;
             }
             match bits {
-                102 => _ = instructions_iter.next(),
-                103 => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter, &component_catalogue)?,
-                500..=599 => {
+                NUMBER_LITERAL => _ = instructions_iter.next(),
+                COMPONENT => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter, &component_catalogue)?,
+                READY_SECTION..=METADATA_SECTION => {
                     section = Some(bits)
                 },
                 _ => {}
@@ -785,18 +786,18 @@ impl Spell {
             for allowed_value in parameter_allowed_values {
                 match allowed_value {
                     "ANY" => {
-                        parsed_parameter_restrictions[index].push(104);
+                        parsed_parameter_restrictions[index].push(ANY);
                         break;
                     },
-                    "true" => parsed_parameter_restrictions[index].push(100),
-                    "false" => parsed_parameter_restrictions[index].push(101),
+                    "true" => parsed_parameter_restrictions[index].push(TRUE),
+                    "false" => parsed_parameter_restrictions[index].push(FALSE),
                     something => {
                         if let Ok(number) = something.parse::<f64>() {
-                            parsed_parameter_restrictions[index].extend(vec![102, f64::to_bits(number), 102, f64::to_bits(number)]);
+                            parsed_parameter_restrictions[index].extend(vec![NUMBER_LITERAL, f64::to_bits(number), NUMBER_LITERAL, f64::to_bits(number)]);
                         } else if something.contains('-') {
                             let numbers: Vec<&str> = something.split('-').collect();
                             if let (Ok(start_range), Ok(stop_range)) = (numbers[0].trim().parse::<f64>(), numbers[1].trim().parse::<f64>()) {
-                                parsed_parameter_restrictions[index].extend(vec![102, f64::to_bits(start_range), 102, f64::to_bits(stop_range)]);
+                                parsed_parameter_restrictions[index].extend(vec![NUMBER_LITERAL, f64::to_bits(start_range), NUMBER_LITERAL, f64::to_bits(stop_range)]);
                             } else {
                                 panic!("Couldn't parse the range: {} to {}", numbers[0], numbers[1]);
                             }
@@ -817,20 +818,20 @@ impl Spell {
         let mut instructions_iter = instructions.iter();
         while let Some(&instruction) = instructions_iter.next() {
             match instruction {
-                102 => { // Number literal
+                NUMBER_LITERAL => { // Number literal
                     section_instructions.push(instruction);
                     let something = *instructions_iter.next().expect("Expected number after literal opcode");
                     section_instructions.push(something);
                 },
-                500..=502 => { // Section opcodes
+                READY_SECTION..=METADATA_SECTION => { // Section opcodes
                     match last_section {
-                        0 => {},
-                        500 => self.ready_instructions = section_instructions.clone(),
-                        501 => {
+                        END_OF_SCOPE => {},
+                        READY_SECTION => self.ready_instructions = section_instructions.clone(),
+                        PROCESS_SECTION => {
                             section_instructions.remove(0);
                             self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
                         },
-                        502 => {
+                        METADATA_SECTION => {
                             self.set_meta_data(section_instructions.clone())
                         },
                         _ => panic!("Invalid section")
@@ -845,13 +846,13 @@ impl Spell {
 
         // match the end section
         match last_section {
-            0 => {},
-            500 => self.ready_instructions = section_instructions.clone(),
-            501 => {
+            END_OF_SCOPE => {},
+            READY_SECTION => self.ready_instructions = section_instructions.clone(),
+            PROCESS_SECTION => {
                 section_instructions.remove(0);
                 self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
             },
-            502 => {
+            METADATA_SECTION => {
                 self.set_meta_data(section_instructions.clone())
             },
             _ => panic!("Invalid section")
@@ -1036,46 +1037,50 @@ impl Spell {
 }
 
 mod boolean_logic { // 100 = true, 101 = false
+    use super::{TRUE, FALSE};
+
     pub fn and(a: u64, b: u64) -> Result<u64, &'static str> {
         match (a, b) {
-            (100, 100) => Ok(100),
-            (100, 101) => Ok(101),
-            (101, 100) => Ok(101),
-            (101, 101) => Ok(101),
+            (TRUE, TRUE) => Ok(TRUE),
+            (TRUE, FALSE) => Ok(FALSE),
+            (FALSE, TRUE) => Ok(FALSE),
+            (FALSE, FALSE) => Ok(FALSE),
             _ => Err("Boolean logic can only compare booleans")
         }
     }
 
     pub fn or(a: u64, b: u64) -> Result<u64, &'static str> {
         match (a, b) {
-            (100, 100) => Ok(100),
-            (100, 101) => Ok(100),
-            (101, 100) => Ok(100),
-            (101, 101) => Ok(101),
+            (TRUE, TRUE) => Ok(TRUE),
+            (TRUE, FALSE) => Ok(TRUE),
+            (FALSE, TRUE) => Ok(TRUE),
+            (FALSE, FALSE) => Ok(FALSE),
             _ => Err("Boolean logic can only compare booleans")
         }
     }
 
     pub fn xor(a: u64, b: u64) -> Result<u64, &'static str> {
         match (a, b) {
-            (100, 100) => Ok(101),
-            (100, 101) => Ok(100),
-            (101, 100) => Ok(100),
-            (101, 101) => Ok(101),
+            (TRUE, TRUE) => Ok(FALSE),
+            (TRUE, FALSE) => Ok(TRUE),
+            (FALSE, TRUE) => Ok(TRUE),
+            (FALSE, FALSE) => Ok(FALSE),
             _ => Err("Boolean logic can only compare booleans")
         }
     }
 
     pub fn not(a: u64) -> Result<u64, &'static str> {
         match a {
-            100 => Ok(101),
-            101 => Ok(100),
+            TRUE => Ok(FALSE),
+            FALSE => Ok(TRUE),
             _ => Err("Not can only be used on booleans")
         }
     }
 }
 
 mod rpn_operations {
+    use super::{NUMBER_LITERAL, TRUE, FALSE};
+
     pub fn binary_operation<T>(rpn_stack: &mut Vec<u64>, operation: T) -> Result<(), &'static str>
     where
         T: FnOnce(u64, u64) -> Result<u64, &'static str>
@@ -1098,8 +1103,8 @@ mod rpn_operations {
         let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
         let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
         match operation(argument_one, argument_two) {
-            true => rpn_stack.push(100),
-            false => rpn_stack.push(101)
+            true => rpn_stack.push(TRUE),
+            false => rpn_stack.push(FALSE)
         };
         Ok(())
     }
@@ -1112,7 +1117,7 @@ mod rpn_operations {
         let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
         let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
         let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-        rpn_stack.extend(vec![102, f64::to_bits(operation(argument_one, argument_two))]);
+        rpn_stack.extend(vec![NUMBER_LITERAL, f64::to_bits(operation(argument_one, argument_two))]);
         Ok(())
     }
 }

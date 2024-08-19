@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic, rpn_operations, opcode::components::*, opcode::attributecodes::*, opcode::spellcodes::*};
+use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic, rpn_operations, codes::componentcodes::*, codes::opcodes::*, codes::attributecodes::*};
 
 const FUNCTION_NAME_SIZE: usize = 25;
 
