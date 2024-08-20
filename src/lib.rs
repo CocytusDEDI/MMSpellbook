@@ -393,7 +393,7 @@ impl Spell {
                     while let Some(&if_bits) = instructions_iter.next() {
                         match if_bits {
                             END_OF_SCOPE => break,
-                            TRUE..=FALSE => rpn_stack.push(if_bits), // true and false
+                            TRUE | FALSE => rpn_stack.push(if_bits), // true and false
                             NUMBER_LITERAL => rpn_stack.extend(vec![NUMBER_LITERAL, *instructions_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
                             COMPONENT => rpn_stack.extend(self.execute_component(&mut instructions_iter)?), // Component
                             AND => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and).unwrap_or_else(|err| panic!("{}", err)), // And statement
@@ -466,7 +466,7 @@ impl Spell {
         for _ in 0..number_of_component_parameters {
             let parameter = *instructions_iter.next().expect("Expected parameter");
             match parameter {
-                TRUE..=FALSE => {},
+                TRUE | FALSE => {},
                 NUMBER_LITERAL => _ = *instructions_iter.next().expect("Expected number after number literal opcode"),
                 COMPONENT => _ = self.execute_component(instructions_iter),
                 _ => panic!("Invalid parameter skipped")
@@ -481,7 +481,7 @@ impl Spell {
         for parameter_number in 0..number_of_component_parameters {
             let parameter = *instructions_iter.next().expect("Expected parameter");
             match parameter {
-                TRUE..=FALSE => parameters.push(parameter),
+                TRUE | FALSE => parameters.push(parameter),
                 NUMBER_LITERAL => {
                     parameters.push(parameter);
                     parameters.push(*instructions_iter.next().expect("Expected number after number literal opcode"));
@@ -579,7 +579,7 @@ impl Spell {
         while let Some(&parameter) = parameter_iter.next() {
             match parameter {
                 NUMBER_LITERAL => compressed_parameters.push(*parameter_iter.next().expect("Expected parameter after number literal opcode")),
-                TRUE..=FALSE => compressed_parameters.push(parameter),
+                TRUE | FALSE => compressed_parameters.push(parameter),
                 _ => panic!("Invalid parameter: isn't float or boolean")
             }
         }

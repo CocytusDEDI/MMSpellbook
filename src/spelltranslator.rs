@@ -312,7 +312,7 @@ fn test_execute_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u
         let parameter = *instructions_iter.next().ok_or("expected parameter")?;
 
         match parameter {
-            TRUE..=FALSE => parameters.push(parameter),
+            TRUE | FALSE => parameters.push(parameter),
             NUMBER_LITERAL => {
                 parameters.push(parameter);
                 parameters.push(*instructions_iter.next().ok_or("Expected number after number literal opcode")?);
@@ -341,7 +341,7 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
     while let Some(&if_bits) = instructions_iter.next() {
         match if_bits {
             END_OF_SCOPE => break,
-            TRUE..=FALSE => rpn_stack.push(if_bits), // true and false
+            TRUE | FALSE => rpn_stack.push(if_bits), // true and false
             NUMBER_LITERAL => rpn_stack.extend(vec![NUMBER_LITERAL, *instructions_iter.next().ok_or("Expected following value")?]), // if 102, next bits are a number literal
             COMPONENT => rpn_stack.extend(test_execute_component(&mut instructions_iter)?), // Component
             AND => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and)?, // And statement
