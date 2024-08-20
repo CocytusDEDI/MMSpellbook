@@ -384,11 +384,11 @@ impl Spell {
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
-                0 => {}, // 0 = end of scope, if reached naturely, move on
-                103 => { // 103 = component
+                END_OF_SCOPE => {}, // 0 = end of scope, if reached naturely, move on
+                COMPONENT => { // 103 = component
                     self.execute_component(&mut instructions_iter)?;
                 },
-                400 => { // 400 = if statement
+                IF => { // 400 = if statement
                     let mut rpn_stack: Vec<u64> = Vec::new();
                     while let Some(&if_bits) = instructions_iter.next() {
                         match if_bits {
@@ -740,7 +740,7 @@ impl Spell {
         let mut instructions_iter = instructions.iter();
         let mut section: Option<u64> = None;
         while let Some(&bits) = instructions_iter.next() {
-            if section.is_some_and(|x| x == 502) && !(500..=599).contains(&bits)  { // ignore all checks in metadata section
+            if section.is_some_and(|x| x == METADATA_SECTION) && !(READY_SECTION..=599).contains(&bits)  { // ignore all checks in metadata section
                 continue;
             }
             match bits {
