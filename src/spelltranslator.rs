@@ -613,21 +613,23 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
             opcodes.extend(match match values.strip_prefix('[')
             .and_then(|x| x.strip_suffix(']'))
             .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?
-            .split(',')
+            
+            .split(',').collect::<Vec<&str>>()[..] {
+                [a, b, c] => [a, b, c],
+                _ => return Err("Invalid number of arguments: color attribute should only have 3 values")
+            }.into_iter()
+            
             .map(str::trim)
             .map(str::parse::<f32>)
             .collect::<Result<Vec<f32>, _>>()
-            .map_err(|_| "Invalid parameters: should be floating point numbers (with decimal point)")?[..] {
+            .map_err(|_| "Invalid parameters: all parameters should be floating point numbers (with decimal point)")?.into_iter()
+            
+            .filter(|x| (0.0..=1.0).contains(x))
+            .collect::<Vec<f32>>()[..]{
                 [a, b, c] => [a, b, c],
-                _ => {
-                    return Err("Invalid number of arguments: color attribute only has 3 values")
-                }
-            }.into_iter().filter(|x| (0.0..=1.0).contains(x)).collect::<Vec<f32>>()[..]{
-                [a, b, c] => [a, b, c],
-                _ => {
-                    return Err("Invalid values: arguments should be between 0 and 1")
-                }
+                _ => return Err("Invalid values: arguments should be between 0 and 1")
             }.into_iter()
+            
             .map(|x| f64::to_bits(x as f64))
             .collect::<Vec<u64>>());
             Ok(opcodes)
@@ -681,9 +683,10 @@ mod tests {
     #[test]
     fn parse_invalid_spell_color() {
         assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
+        assert_eq!(parse_about_line("color = [0.212, 1, 0.3,]"), Err("Invalid number of arguments: color attribute should only have 3 values"));
         assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
         assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
-        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: should be floating point numbers (with decimal point)"));
+        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: all parameters should be floating point numbers (with decimal point)"));
     }
 
     #[test]
