@@ -64,9 +64,7 @@ pub fn anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> O
         return None
     }
 
-    spell.base().get_overlapping_bodies();
-
-    spell.anchor_next_frame = true;
+    spell.anchor();
 
     return None
 }
@@ -76,7 +74,7 @@ pub fn undo_anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool)
         return Some(vec![f64::to_bits(0.0)])
     }
 
-    spell.undo_anchor_next_frame = true;
+    spell.undo_anchor();
 
     return None
 }

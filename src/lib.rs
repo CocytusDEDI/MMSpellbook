@@ -153,7 +153,6 @@ struct Spell {
     counter: usize,
     #[export]
     energy_lose_rate: f64,
-    first_physics_frame: bool,
     config: Config,
     component_catalogue: ComponentCatalogue,
     check_component_return_value: bool,
@@ -170,8 +169,6 @@ struct Spell {
     start_time: Option<u64>,
     form_set: bool,
     anchored_to: Option<Gd<MagicalEntity>>,
-    anchor_next_frame: bool,
-    undo_anchor_next_frame: bool,
 }
 
 #[godot_api]
@@ -183,7 +180,6 @@ impl IArea3D for Spell {
             color: DEFAULT_COLOR.into_spell_color(),
             counter: 0,
             energy_lose_rate: ENERGY_LOSE_RATE,
-            first_physics_frame: true,
             config: Config::get_config().unwrap_or_else(|error| {
                 godot_warn!("{}", error);
                 Config::default()
@@ -203,8 +199,6 @@ impl IArea3D for Spell {
             start_time: None,
             form_set: false,
             anchored_to: None,
-            anchor_next_frame: false,
-            undo_anchor_next_frame: false,
         }
     }
 
@@ -290,25 +284,6 @@ impl IArea3D for Spell {
             let new_position = previous_position + direction * self.velocity.length() * f32_delta;
             self.base_mut().set_global_position(new_position);
         }
-
-        // Anchor if need to
-        if self.anchor_next_frame {
-            self.anchor();
-            if !self.first_physics_frame {
-                self.anchor_next_frame = false;
-            }
-        }
-
-        // Undo anchor if need to
-        if self.undo_anchor_next_frame {
-            if !self.first_physics_frame {
-                self.undo_anchor();
-                self.undo_anchor_next_frame = false;
-            }
-        }
-
-        // Must be after anchor and undo anchor
-        self.first_physics_frame = false;
 
         // Reduces energy due to anchor if there is one
         if !self.surmount_anchor_resistance() {
@@ -532,15 +507,16 @@ impl Spell {
     }
 
     fn anchor(&mut self) {
-        let objects = self.base().get_overlapping_bodies();
-
-        for object in objects.iter_shared() {
-            if let Ok(magical_entity_object) = object.try_cast::<MagicalEntity>() {
-                self.base_mut().set_position(magical_entity_object.get_global_position());
-                self.anchored_to = Some(magical_entity_object);
-                self.base_mut().set_as_top_level(false);
-                self.set_csg_sphere_visibility(false);
-            }
+        let parent = match self.base().get_parent() {
+            Some(node) => node.cast::<MagicalEntity>(),
+            None => panic!("Expected parent node")
+        };
+        let distance = (self.base().get_global_position() - parent.get_global_position()).length();
+        if self.get_radius() >= distance {
+            self.base_mut().set_position(parent.get_global_position());
+            self.anchored_to = Some(parent);
+            self.base_mut().set_as_top_level(false);
+            self.set_csg_sphere_visibility(false);
         }
     }
 

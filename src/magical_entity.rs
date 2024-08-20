@@ -283,8 +283,8 @@ impl MagicalEntity {
             spell_bind.internal_set_instructions(self.loaded_spell.clone());
         }
 
-        self.base_mut().add_child(&spell);
         spell.set_position(self.base().get_global_position());
+        self.base_mut().add_child(&spell);
         self.spells_cast.push(spell);
 
         self.focus_level -= FOCUS_LOSE_FROM_CASTING * self.energy_charged * self.energy_selected / self.max_power;
