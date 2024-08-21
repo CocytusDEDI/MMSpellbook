@@ -1,47 +1,62 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{ReturnType, COMPONENT_TO_FUNCTION_MAP, Spell, boolean_logic, rpn_operations, codes::componentcodes::*, codes::opcodes::*, codes::attributecodes::*};
+use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, shapecodes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
 
-const FUNCTION_NAME_SIZE: usize = 25;
+const NAME_SIZE: usize = 25;
 
 const ON_READY_NAME: &'static str = "when_created";
 const PROCESS_NAME: &'static str = "repeat";
 const META_DATA_NAME: &'static str = "about";
 
-fn pad_component_name(component_name: &str) -> [Option<char>; FUNCTION_NAME_SIZE] {
-    let mut padded_name = [None; FUNCTION_NAME_SIZE];
-    for (index, character) in component_name.chars().take(FUNCTION_NAME_SIZE).enumerate() {
-        padded_name[index] = Some(character);
-    }
-    padded_name
-}
-
 lazy_static! {
-    static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; FUNCTION_NAME_SIZE], u64> = {
+    static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; NAME_SIZE], u64> = {
         let mut component_map = HashMap::new();
 
         // Utility:
-        component_map.insert(pad_component_name("give_velocity"), GIVE_VELOCITY);
-        component_map.insert(pad_component_name("take_form"), TAKE_FORM);
-        component_map.insert(pad_component_name("undo_form"), UNDO_FORM);
-        component_map.insert(pad_component_name("recharge_to"), RECHARGE_TO);
-        component_map.insert(pad_component_name("anchor"), ANCHOR);
-        component_map.insert(pad_component_name("undo_anchor"), UNDO_ANCHOR);
-        component_map.insert(pad_component_name("perish"), PERISH);
+        component_map.insert(pad_name("give_velocity"), GIVE_VELOCITY);
+        component_map.insert(pad_name("take_form"), TAKE_FORM);
+        component_map.insert(pad_name("undo_form"), UNDO_FORM);
+        component_map.insert(pad_name("recharge_to"), RECHARGE_TO);
+        component_map.insert(pad_name("anchor"), ANCHOR);
+        component_map.insert(pad_name("undo_anchor"), UNDO_ANCHOR);
+        component_map.insert(pad_name("perish"), PERISH);
 
         // Logic:
-        component_map.insert(pad_component_name("moving"), MOVING);
-        component_map.insert(pad_component_name("get_time"), GET_TIME);
+        component_map.insert(pad_name("moving"), MOVING);
+        component_map.insert(pad_name("get_time"), GET_TIME);
 
         // Power:
-        component_map.insert(pad_component_name("set_damage"), SET_DAMAGE);
+        component_map.insert(pad_name("set_damage"), SET_DAMAGE);
 
         component_map
     };
 }
 
+lazy_static! {
+    static ref SHAPE_TO_NUM_MAP: HashMap<[Option<char>; NAME_SIZE], u64> = {
+        let mut shape_map = HashMap::new();
+
+        shape_map.insert(pad_name("sphere"), SPHERE);
+        shape_map.insert(pad_name("box"), BOX);
+
+        shape_map
+    };
+}
+
+fn pad_name(component_name: &str) -> [Option<char>; NAME_SIZE] {
+    let mut padded_name = [None; NAME_SIZE];
+    for (index, character) in component_name.chars().take(NAME_SIZE).enumerate() {
+        padded_name[index] = Some(character);
+    }
+    padded_name
+}
+
 pub fn get_component_num(component_name: &str) -> Option<u64> {
-    COMPONENT_TO_NUM_MAP.get(&pad_component_name(component_name)).cloned()
+    COMPONENT_TO_NUM_MAP.get(&pad_name(component_name)).cloned()
+}
+
+pub fn get_shape_num(shape_name: &str) -> Option<u64> {
+    SHAPE_TO_NUM_MAP.get(&pad_name(shape_name)).cloned()
 }
 
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
@@ -86,7 +101,7 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
             } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
                 instructions.push(IF); // Indicates if statement
                 instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
-                instructions.push(0); // Indicates end of scope for logic
+                instructions.push(END_OF_SCOPE); // Indicates end of scope for logic
                 expected_closing_brackets += 1;
             } else if expected_closing_brackets > 0 && trimmed_line == "}" {
                 instructions.push(END_OF_SCOPE);
@@ -612,28 +627,32 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
             let mut opcodes = vec![COLOR];
             opcodes.extend(match match values.strip_prefix('[')
             .and_then(|x| x.strip_suffix(']'))
-            .ok_or_else(|| "Invalid parameters: should be a list and have \"[\" \"]\"")?
+            .ok_or_else(|| "Invalid color values: should be a list in the form `[value, value, value]`")?
             
             .split(',').collect::<Vec<&str>>()[..] {
                 [a, b, c] => [a, b, c],
-                _ => return Err("Invalid number of arguments: color attribute should only have 3 values")
+                _ => return Err("Invalid number of values: color attribute should have 3 values")
             }.into_iter()
             
             .map(str::trim)
             .map(str::parse::<f32>)
             .collect::<Result<Vec<f32>, _>>()
-            .map_err(|_| "Invalid parameters: all parameters should be floating point numbers (with decimal point)")?.into_iter()
+            .map_err(|_| "Invalid color values: all values should be numbers")?.into_iter()
             
             .filter(|x| (0.0..=1.0).contains(x))
             .collect::<Vec<f32>>()[..]{
                 [a, b, c] => [a, b, c],
-                _ => return Err("Invalid values: arguments should be between 0 and 1")
+                _ => return Err("Invalid color values: values should be between 0 and 1")
             }.into_iter()
             
             .map(|x| f64::to_bits(x as f64))
             .collect::<Vec<u64>>());
             Ok(opcodes)
         },
+        ("shape", value) => {
+            let destringed_value = value.strip_prefix("\"").and_then(|x| x.strip_suffix("\"")).ok_or("Expected a string (a value starting and ending with \")")?;
+            Ok(vec![SHAPE, get_shape_num(destringed_value).ok_or("Invalid shape value: shape doesn't exist")?])
+        }
         _ => Err("Unkown attribute: undefined attribute")
     }
 }
@@ -682,11 +701,11 @@ mod tests {
     
     #[test]
     fn parse_invalid_spell_color() {
-        assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid values: arguments should be between 0 and 1"));
-        assert_eq!(parse_about_line("color = [0.212, 1, 0.3,]"), Err("Invalid number of arguments: color attribute should only have 3 values"));
-        assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
-        assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid parameters: should be a list and have \"[\" \"]\""));
-        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid parameters: all parameters should be floating point numbers (with decimal point)"));
+        assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid color values: values should be between 0 and 1"));
+        assert_eq!(parse_about_line("color = [0.212, 1, 0.3,]"), Err("Invalid number of values: color attribute should have 3 values"));
+        assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid color values: should be a list in the form `[value, value, value]`"));
+        assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid color values: should be a list in the form `[value, value, value]`"));
+        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid color values: all values should be numbers"));
     }
 
     #[test]
