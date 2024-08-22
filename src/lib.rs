@@ -1,7 +1,5 @@
-use godot::classes::BoxShape3D;
-use godot::classes::CsgBox3D;
 use lazy_static::lazy_static;
-use serde_json::{Value, json};
+use serde_json::json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -13,7 +11,9 @@ use godot::classes::Area3D;
 use godot::classes::IArea3D;
 use godot::classes::CollisionShape3D;
 use godot::classes::SphereShape3D;
+use godot::classes::BoxShape3D;
 use godot::classes::CsgSphere3D;
+use godot::classes::CsgBox3D;
 use godot::classes::Shape3D;
 use godot::classes::StandardMaterial3D;
 use godot::classes::base_material_3d::Transparency;
@@ -56,6 +56,13 @@ const VOLUME_TO_RADIUS: f32 = 0.3;
 
 const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20); // In the format (rings, radial segments)
 
+const DEFAULT_COLOR: CustomColor = CustomColor { r: 1.0, g: 1.0, b: 1.0 };
+
+const SPELL_COLLISION_SHAPE_NAME: &'static str = "spell_collision_shape";
+const SPELL_SHAPE_NAME: &'static str = "spell_shape";
+const SPELL_CSG_SHAPE_NAME: &'static str = "spell_csg_shape";
+const FORM_NAME: &'static str = "form";
+
 #[derive(Serialize, Deserialize)]
 struct CustomColor {
     r: f32,
@@ -69,8 +76,6 @@ impl CustomColor {
     }
 }
 
-const DEFAULT_COLOR: CustomColor = CustomColor { r: 1.0, g: 1.0, b: 1.0 };
-
 #[derive(Deserialize, Serialize, Clone)]
 pub struct ComponentCatalogue {
     pub component_catalogue: HashMap<u64, Vec<Vec<u64>>>
@@ -81,11 +86,6 @@ impl ComponentCatalogue {
         ComponentCatalogue { component_catalogue: HashMap::new() }
     }
 }
-
-struct MyExtension;
-
-#[gdextension]
-unsafe impl ExtensionLibrary for MyExtension {}
 
 enum ReturnType {
     Float,
@@ -122,6 +122,28 @@ lazy_static! {
     };
 }
 
+#[derive(Clone, Copy)]
+enum Shape {
+    Sphere,
+    Box
+}
+
+trait HasShape {
+    fn set_shape(&mut self, size: f32);
+    fn set_size(&mut self, size: f32);
+    fn set_visibility(&mut self, visible: bool);
+}
+
+impl Shape {
+    fn from_num(number: u64) -> Self {
+        match number {
+            SPHERE => Self::Sphere,
+            BOX => Self::Box,
+            _ => panic!("Shape code doesn't exist")
+        }
+    }
+}
+
 /// A process is a set of instructions used in the method `physics_process`. A process keeps track of when it should run using a counter.
 struct Process {
     counter: usize,
@@ -143,135 +165,10 @@ impl Process {
     }
 }
 
-#[derive(Clone, Copy)]
-enum Shape {
-    Sphere,
-    Box
-}
+struct MyExtension;
 
-const SPELL_COLLISION_SHAPE_NAME: &'static str = "spell_collision_shape";
-const SPELL_SHAPE_NAME: &'static str = "spell_shape";
-const SPELL_CSG_SHAPE_NAME: &'static str = "spell_csg_shape";
-const FORM_NAME: &'static str = "form";
-
-impl Shape {
-    fn set_as_shape(&self, spell: &mut Spell) {
-        // Collision shape
-        let mut collision_shape = CollisionShape3D::new_alloc();
-        collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into_godot());
-
-        // Material
-        let mut csg_material = StandardMaterial3D::new_gd();
-
-        // Player defined material properties
-        csg_material.set_albedo(spell.color);
-
-        // Constant material properties
-        csg_material.set_transparency(Transparency::ALPHA); // Transparency type
-        csg_material.set_feature(Feature::EMISSION, true); // Allows spell to emit light
-        csg_material.set_emission(spell.color); // Chooses what light to emit
-
-        match self {
-            Self::Sphere => {
-                // Creating sphere shape
-                let mut shape = SphereShape3D::new_gd();
-                shape.set_name(SPELL_SHAPE_NAME.into_godot());
-                let radius = self.get_radius(spell.energy);
-                shape.set_radius(radius);
-                collision_shape.set_shape(shape.upcast::<Shape3D>());
-
-                // Creating visual representation of spell in godot
-                let mut csg_sphere = CsgSphere3D::new_alloc();
-                csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
-                csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
-                csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
-                csg_sphere.set_radius(radius);
-                csg_sphere.set_material(csg_material);
-                spell.base_mut().add_child(csg_sphere.upcast::<Node>());
-            },
-            Self::Box => {
-                // Creating box shape
-                let mut shape = BoxShape3D::new_gd();
-                shape.set_name(SPELL_SHAPE_NAME.into_godot());
-                let side = self.get_side(spell.energy);
-                let size = Vector3 { x: side, y: side, z: side };
-                shape.set_size(size);
-                collision_shape.set_shape(shape.upcast::<Shape3D>());
-
-                // Creating visual representation of spell in godot
-                let mut csg_box = CsgBox3D::new_alloc();
-                csg_box.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
-                csg_box.set_size(size);
-                csg_box.set_material(csg_material);
-                spell.base_mut().add_child(csg_box.upcast::<Node>());
-            }
-        };
-
-        spell.base_mut().add_child(collision_shape.upcast::<Node>());
-    }
-
-    fn update_size(&self, spell: &mut Spell) {
-        let collsion_shape = spell.base_mut().get_node_as::<CollisionShape3D>(SPELL_COLLISION_SHAPE_NAME);
-        let shape = collsion_shape.get_shape().unwrap();
-
-        match self {
-            Self::Sphere => {
-                // Radius changing of collision shape
-                let radius = self.get_radius(spell.energy);
-
-                let mut sphere_shape = shape.cast::<SphereShape3D>();
-                sphere_shape.set_radius(radius);
-
-                // Changing radius of csg sphere
-                let mut csg_sphere = spell.base_mut().get_node_as::<CsgSphere3D>(SPELL_CSG_SHAPE_NAME);
-                csg_sphere.set_radius(radius);
-            },
-            Self::Box => {
-                let side = self.get_side(spell.energy);
-                let size = Vector3 { x: side, y: side, z: side };
-
-                let mut box_shape = shape.cast::<BoxShape3D>();
-                box_shape.set_size(size);
-
-                let mut csg_box = spell.base_mut().get_node_as::<CsgBox3D>(SPELL_CSG_SHAPE_NAME);
-                csg_box.set_size(size);
-            }
-        }
-    }
-
-    fn set_visibility(&self, spell: &mut Spell, visible: bool) {
-        match self {
-            Self::Sphere => {
-                let mut csg_sphere: Gd<CsgSphere3D> = spell.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
-                csg_sphere.set_visible(visible);
-            },
-            Self::Box => {
-                let mut csg_box: Gd<CsgBox3D> = spell.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
-                csg_box.set_visible(visible)
-            }
-        }
-    }
-
-    fn get_side(&self, energy: f64) -> f32 {
-        self.get_volume(energy).powf(1.0/3.0)
-    }
-
-    fn get_radius(&self, energy: f64) -> f32 {
-        ((3.0 * self.get_volume(energy)) / (4.0 * PI)).powf(1.0 / 3.0) * VOLUME_TO_RADIUS
-    }
-
-    fn get_volume(&self, energy: f64) -> f32 {
-        f32::ln(ENERGY_TO_VOLUME * (energy as f32) + 1.0).powi(2)
-    }
-
-    fn from_num(number: u64) -> Self {
-        match number {
-            SPHERE => Self::Sphere,
-            BOX => Self::Box,
-            _ => panic!("Shape code doesn't exist")
-        }
-    }
-}
+#[gdextension]
+unsafe impl ExtensionLibrary for MyExtension {}
 
 #[derive(GodotClass)]
 #[class(base=Area3D)]
@@ -357,8 +254,7 @@ impl IArea3D for Spell {
             None => Basis::default()
         };
 
-        let shape = self.shape;
-        shape.set_as_shape(self);
+        self.update_shape();
 
         // Execute the spell and get the result
         let spell_result = {
@@ -466,8 +362,7 @@ impl IArea3D for Spell {
 
         // Decreases the radius of the sphere if form isn't set
         if !self.form_set && self.anchored_to == None && self.counter == 0 {
-            let shape = self.shape;
-            shape.update_size(self);
+            self.update_size();
         }
 
         self.counter = (self.counter + 1) % RADIUS_UPDATE_RATE;
@@ -603,79 +498,6 @@ impl Spell {
         return self.call_component(component_code, parameters)
     }
 
-    fn perish(&mut self) {
-        self.base_mut().queue_free();
-    }
-
-    fn anchor(&mut self) {
-        let parent = match self.base().get_parent() {
-            Some(node) => node.cast::<MagicalEntity>(),
-            None => panic!("Expected parent node")
-        };
-        let distance = (self.base().get_global_position() - parent.get_global_position()).length();
-        let shape = self.shape;
-        if shape.get_radius(self.energy) >= distance {
-            self.base_mut().set_position(parent.get_global_position());
-            self.anchored_to = Some(parent);
-            self.base_mut().set_as_top_level(false);
-            let shape = self.shape;
-            shape.set_visibility(self, false);
-        }
-    }
-
-    fn undo_anchor(&mut self) {
-        self.base_mut().set_as_top_level(true);
-        let position = self.base().get_global_position();
-        match self.anchored_to {
-            Some(ref mut magical_entity) => magical_entity.set_position(position),
-            None => return
-        }
-        self.anchored_to = None;
-        if !self.form_set {
-            let shape = self.shape;
-            shape.set_visibility(self, true);
-        }
-    }
-
-    fn surmount_anchor_resistance(&mut self) -> bool {
-        let mut spell_owned = false;
-
-        let magical_entity_option = std::mem::take(&mut self.anchored_to);
-
-        if let Some(ref magical_entity) = magical_entity_option {
-            let bind_magical_entity = magical_entity.bind();
-            spell_owned = bind_magical_entity.owns_spell(self.to_gd())
-        }
-
-        self.anchored_to = magical_entity_option;
-
-        if let Some(ref mut magical_entity) = self.anchored_to {
-            let mut bind_magical_entity = magical_entity.bind_mut();
-
-            // Surmounting magical entity's charged energy
-            if !spell_owned {
-                let energy_charged = bind_magical_entity.get_energy_charged();
-                if self.energy >= energy_charged {
-                    bind_magical_entity.set_energy_charged(0.0);
-                    self.energy -= energy_charged;
-                } else {
-                    bind_magical_entity.set_energy_charged(energy_charged - self.energy);
-                    self.energy = 0.0;
-                    return false
-                }
-            }
-
-            // Surmounting magical entity's mass
-            self.energy -= bind_magical_entity.get_mass() * MASS_MOVEMENT_COST;
-
-            if !(self.energy > 0.0) {
-                return false
-            }
-        }
-
-        return true
-    }
-
     fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Vec<u64>, &'static str> {
         // Removes number literal opcodes
         let mut compressed_parameters: Vec<u64> = Vec::new();
@@ -734,35 +556,6 @@ impl Spell {
             return number_of_parameters.len()
         } else {
             panic!("Component doesn't exist")
-        }
-    }
-
-    fn set_form(&mut self, form_code: u64) {
-        if self.form_set {
-            self.undo_form();
-        }
-        let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
-
-        let scene: Gd<PackedScene> = load(&form_config.path);
-
-        self.form_set = true;
-        let shape = self.shape;
-        shape.set_visibility(self, false);
-        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
-        instantiated_scene.set_name(FORM_NAME.into_godot());
-        self.base_mut().add_child(instantiated_scene);
-    }
-
-    fn undo_form(&mut self) {
-        if self.form_set == false {
-            return
-        }
-        self.form_set = false;
-        let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME.into_godot());
-        form.free();
-        if self.anchored_to == None {
-            let shape = self.shape;
-            shape.set_visibility(self, true);
         }
     }
 
@@ -960,6 +753,234 @@ impl Spell {
     fn internal_set_efficiency_levels(&mut self, efficiency_levels: HashMap<u64, f64>) {
         self.component_efficiency_levels = efficiency_levels;
     }
+
+    fn perish(&mut self) {
+        self.base_mut().queue_free();
+    }
+
+    fn anchor(&mut self) {
+        let parent = match self.base().get_parent() {
+            Some(node) => node.cast::<MagicalEntity>(),
+            None => panic!("Expected parent node")
+        };
+        let distance = (self.base().get_global_position() - parent.get_global_position()).length();
+        if self.get_radius(self.energy) >= distance {
+            self.base_mut().set_position(parent.get_global_position());
+            self.anchored_to = Some(parent);
+            self.base_mut().set_as_top_level(false);
+            self.set_visibility(false);
+        }
+    }
+
+    fn undo_anchor(&mut self) {
+        self.base_mut().set_as_top_level(true);
+        let position = self.base().get_global_position();
+        match self.anchored_to {
+            Some(ref mut magical_entity) => magical_entity.set_position(position),
+            None => return
+        }
+        self.anchored_to = None;
+        if !self.form_set {
+            self.set_visibility(true);
+        }
+    }
+
+    fn surmount_anchor_resistance(&mut self) -> bool {
+        let mut spell_owned = false;
+
+        let magical_entity_option = std::mem::take(&mut self.anchored_to);
+
+        if let Some(ref magical_entity) = magical_entity_option {
+            let bind_magical_entity = magical_entity.bind();
+            spell_owned = bind_magical_entity.owns_spell(self.to_gd())
+        }
+
+        self.anchored_to = magical_entity_option;
+
+        if let Some(ref mut magical_entity) = self.anchored_to {
+            let mut bind_magical_entity = magical_entity.bind_mut();
+
+            // Surmounting magical entity's charged energy
+            if !spell_owned {
+                let energy_charged = bind_magical_entity.get_energy_charged();
+                if self.energy >= energy_charged {
+                    bind_magical_entity.set_energy_charged(0.0);
+                    self.energy -= energy_charged;
+                } else {
+                    bind_magical_entity.set_energy_charged(energy_charged - self.energy);
+                    self.energy = 0.0;
+                    return false
+                }
+            }
+
+            // Surmounting magical entity's mass
+            self.energy -= bind_magical_entity.get_mass() * MASS_MOVEMENT_COST;
+
+            if !(self.energy > 0.0) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    fn set_form(&mut self, form_code: u64) {
+        if self.form_set {
+            self.undo_form();
+        }
+        let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
+
+        let scene: Gd<PackedScene> = load(&form_config.path);
+
+        self.form_set = true;
+        self.set_visibility(false);
+        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
+        instantiated_scene.set_name(FORM_NAME.into_godot());
+        self.base_mut().add_child(instantiated_scene);
+    }
+
+    fn undo_form(&mut self) {
+        if self.form_set == false {
+            return
+        }
+        self.form_set = false;
+        let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME.into_godot());
+        form.free();
+        if self.anchored_to == None {
+            self.set_visibility(true);
+        }
+    }
+
+    fn update_shape(&mut self) {
+        match self.shape {
+            Shape::Sphere => {
+                // Radius changing of collision shape
+                self.set_shape(self.get_radius(self.energy));
+            },
+            Shape::Box => {
+                self.set_shape(self.get_side(self.energy));
+            }
+        }
+    }
+
+    fn update_size(&mut self) {
+        match self.shape {
+            Shape::Sphere => {
+                // Radius changing of collision shape
+                self.set_size(self.get_radius(self.energy));
+            },
+            Shape::Box => {
+                self.set_size(self.get_side(self.energy));
+            }
+        }
+    }
+
+    fn get_side(&self, energy: f64) -> f32 {
+        self.get_natural_volume(energy).powf(1.0/3.0)
+    }
+
+    fn get_radius(&self, energy: f64) -> f32 {
+        ((3.0 * self.get_natural_volume(energy)) / (4.0 * PI)).powf(1.0 / 3.0) * VOLUME_TO_RADIUS
+    }
+
+    fn get_natural_volume(&self, energy: f64) -> f32 {
+        f32::ln(ENERGY_TO_VOLUME * (energy as f32) + 1.0).powi(2)
+    }
+}
+
+impl HasShape for Spell {
+    fn set_shape(&mut self, size: f32) {
+        // Collision shape
+        let mut collision_shape = CollisionShape3D::new_alloc();
+        collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into_godot());
+
+        // Material
+        let mut csg_material = StandardMaterial3D::new_gd();
+
+        // Player defined material properties
+        csg_material.set_albedo(self.color);
+
+        // Constant material properties
+        csg_material.set_transparency(Transparency::ALPHA); // Transparency type
+        csg_material.set_feature(Feature::EMISSION, true); // Allows spell to emit light
+        csg_material.set_emission(self.color); // Chooses what light to emit
+
+        match self.shape {
+            Shape::Sphere => {
+                // Creating sphere shape
+                let mut shape = SphereShape3D::new_gd();
+                shape.set_name(SPELL_SHAPE_NAME.into_godot());
+                shape.set_radius(size);
+                collision_shape.set_shape(shape.upcast::<Shape3D>());
+
+                // Creating visual representation of spell in godot
+                let mut csg_sphere = CsgSphere3D::new_alloc();
+                csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
+                csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
+                csg_sphere.set_radius(size);
+                csg_sphere.set_material(csg_material);
+                self.base_mut().add_child(csg_sphere.upcast::<Node>());
+            },
+            Shape::Box => {
+                // Creating box shape
+                let mut shape = BoxShape3D::new_gd();
+                shape.set_name(SPELL_SHAPE_NAME.into_godot());
+                let box_size = Vector3 { x: size, y: size, z: size };
+                shape.set_size(box_size);
+                collision_shape.set_shape(shape.upcast::<Shape3D>());
+
+                // Creating visual representation of spell in godot
+                let mut csg_box = CsgBox3D::new_alloc();
+                csg_box.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_box.set_size(box_size);
+                csg_box.set_material(csg_material);
+                self.base_mut().add_child(csg_box.upcast::<Node>());
+            }
+        };
+
+        self.base_mut().add_child(collision_shape.upcast::<Node>());
+    }
+
+    fn set_size(&mut self, size: f32) {
+        let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>(SPELL_COLLISION_SHAPE_NAME);
+        let shape = collsion_shape.get_shape().unwrap();
+
+        match self.shape {
+            Shape::Sphere => {
+                // Radius changing of collision shape
+                let mut sphere_shape = shape.cast::<SphereShape3D>();
+                sphere_shape.set_radius(size);
+
+                // Changing radius of csg sphere
+                let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>(SPELL_CSG_SHAPE_NAME);
+                csg_sphere.set_radius(size);
+            },
+            Shape::Box => {
+                let box_size = Vector3 { x: size, y: size, z: size };
+
+                let mut box_shape = shape.cast::<BoxShape3D>();
+                box_shape.set_size(box_size);
+
+                let mut csg_box = self.base_mut().get_node_as::<CsgBox3D>(SPELL_CSG_SHAPE_NAME);
+                csg_box.set_size(box_size);
+            }
+        }
+    }
+
+
+    fn set_visibility(&mut self, visible: bool) {
+        match self.shape {
+            Shape::Sphere => {
+                let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_sphere.set_visible(visible);
+            },
+            Shape::Box => {
+                let mut csg_box: Gd<CsgBox3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_box.set_visible(visible)
+            }
+        }
+    }
 }
 
 #[godot_api]
@@ -1005,7 +1026,7 @@ impl Spell {
         let json_string = efficiency_levels_bytecode_json.to_string();
 
         match serde_json::from_str(&json_string) {
-            Ok(Value::Object(efficiency_levels_object)) => {
+            Ok(serde_json::Value::Object(efficiency_levels_object)) => {
                 let mut temp_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiency_levels_object {
                     if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u64>(), value.as_f64()) {
@@ -1024,14 +1045,14 @@ impl Spell {
         let json_string = efficiency_levels_json.to_string();
 
         match serde_json::from_str(&json_string) {
-            Ok(Value::Object(efficiency_levels_object)) => {
+            Ok(serde_json::Value::Object(efficiency_levels_object)) => {
                 let mut return_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiency_levels_object {
                     if let (Some(parsed_key), Some(parsed_value)) = (get_component_num(&key), value.as_f64()) {
                         return_hashmap.insert(parsed_key, parsed_value);
                     }
                 }
-                let json_object: Value = json!(return_hashmap);
+                let json_object: serde_json::Value = json!(return_hashmap);
                 GString::from(json_object.to_string())
             },
             Ok(_) => panic!("Invalid: Must be dictionary"),
