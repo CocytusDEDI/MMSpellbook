@@ -3,6 +3,7 @@ use serde_json::json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::f32::consts::PI;
+use std::f64::consts::E;
 
 // Godot imports
 use godot::prelude::*;
@@ -14,6 +15,7 @@ use godot::classes::SphereShape3D;
 use godot::classes::BoxShape3D;
 use godot::classes::CsgSphere3D;
 use godot::classes::CsgBox3D;
+use godot::classes::CsgPrimitive3D;
 use godot::classes::Shape3D;
 use godot::classes::StandardMaterial3D;
 use godot::classes::base_material_3d::Transparency;
@@ -122,8 +124,8 @@ lazy_static! {
     };
 }
 
-#[derive(Clone, Copy)]
-enum Shape {
+#[derive(Clone, Copy, Deserialize)]
+pub enum Shape {
     Sphere,
     Box
 }
@@ -179,6 +181,7 @@ struct Spell {
     #[export]
     color: Color,
     shape: Shape,
+    distorted_size: Option<f32>,
     counter: usize,
     #[export]
     energy_lose_rate: f64,
@@ -208,6 +211,7 @@ impl IArea3D for Spell {
             energy: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
             shape: Shape::Sphere,
+            distorted_size: None,
             counter: 0,
             energy_lose_rate: ENERGY_LOSE_RATE,
             config: Config::get_config().unwrap_or_else(|error| {
@@ -764,7 +768,7 @@ impl Spell {
             None => panic!("Expected parent node")
         };
         let distance = (self.base().get_global_position() - parent.get_global_position()).length();
-        if self.get_radius(self.energy) >= distance {
+        if self.get_natural_size(self.energy as f32) >= distance {
             self.base_mut().set_position(parent.get_global_position());
             self.anchored_to = Some(parent);
             self.base_mut().set_as_top_level(false);
@@ -830,9 +834,14 @@ impl Spell {
         }
         let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
 
+        let size = form_config.size;
+
         let scene: Gd<PackedScene> = load(&form_config.path);
 
         self.form_set = true;
+        self.shape = form_config.shape;
+        self.set_shape(size);
+        self.distort_size(size);
         self.set_visibility(false);
         let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
         instantiated_scene.set_name(FORM_NAME.into_godot());
@@ -846,53 +855,77 @@ impl Spell {
         self.form_set = false;
         let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME.into_godot());
         form.free();
+        self.distorted_size = None;
+        self.shape = Shape::Sphere;
+        self.update_shape();
         if self.anchored_to == None {
             self.set_visibility(true);
         }
     }
 
     fn update_shape(&mut self) {
-        match self.shape {
-            Shape::Sphere => {
-                // Radius changing of collision shape
-                self.set_shape(self.get_radius(self.energy));
-            },
-            Shape::Box => {
-                self.set_shape(self.get_side(self.energy));
-            }
-        }
+        self.set_shape(self.get_natural_size(self.energy as f32));
     }
 
     fn update_size(&mut self) {
+        self.set_size(self.get_natural_size(self.energy as f32));
+    }
+
+    fn get_natural_size(&self, energy: f32) -> f32 {
         match self.shape {
             Shape::Sphere => {
-                // Radius changing of collision shape
-                self.set_size(self.get_radius(self.energy));
+                ((3.0 * self.get_natural_volume(energy)) / (4.0 * PI)).powf(1.0 / 3.0) * VOLUME_TO_RADIUS
             },
             Shape::Box => {
-                self.set_size(self.get_side(self.energy));
+                self.get_natural_volume(energy).powf(1.0/3.0)
             }
         }
     }
 
-    fn get_side(&self, energy: f64) -> f32 {
-        self.get_natural_volume(energy).powf(1.0/3.0)
+    fn distort_size(&mut self, size: f32) {
+        self.distorted_size = Some(size);
+        self.set_size(size);
     }
 
-    fn get_radius(&self, energy: f64) -> f32 {
-        ((3.0 * self.get_natural_volume(energy)) / (4.0 * PI)).powf(1.0 / 3.0) * VOLUME_TO_RADIUS
+    fn get_control_needed_for_distorted_size(&self, distorted_size: Option<f32>) -> f64 {
+        let size = match distorted_size {
+            Some(ref size) => size,
+            None => return 0.0
+        };
+        let size_multiplier = (size / self.get_natural_size(self.energy as f32)) as f64;
+        (E.powf(size_multiplier - 1.0) + E.powf((1.0 / size_multiplier) - 1.0) - 2.0) * self.energy
     }
 
-    fn get_natural_volume(&self, energy: f64) -> f32 {
-        f32::ln(ENERGY_TO_VOLUME * (energy as f32) + 1.0).powi(2)
+    fn get_control_needed(&self) -> f64 {
+        self.energy + self.get_control_needed_for_distorted_size(self.distorted_size)
+    }
+
+    fn get_natural_volume(&self, energy: f32) -> f32 {
+        f32::ln(ENERGY_TO_VOLUME * (energy) + 1.0).powi(2)
     }
 }
 
 impl HasShape for Spell {
     fn set_shape(&mut self, size: f32) {
         // Collision shape
-        let mut collision_shape = CollisionShape3D::new_alloc();
-        collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into_godot());
+        let mut collision_shape_exists = false;
+
+        let mut collision_shape = match self.base().try_get_node_as::<CollisionShape3D>(SPELL_COLLISION_SHAPE_NAME) {
+            Some(collision_shape) => {
+                collision_shape_exists = true;
+                collision_shape
+            },
+            None => {
+                let mut collision_shape = CollisionShape3D::new_alloc();
+                collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into_godot());
+                collision_shape
+            }
+        };
+
+        match self.base().try_get_node_as::<CsgPrimitive3D>(SPELL_CSG_SHAPE_NAME) {
+            Some(csg) => csg.free(),
+            None => {}
+        };
 
         // Material
         let mut csg_material = StandardMaterial3D::new_gd();
@@ -939,7 +972,9 @@ impl HasShape for Spell {
             }
         };
 
-        self.base_mut().add_child(collision_shape.upcast::<Node>());
+        if !collision_shape_exists {
+            self.base_mut().add_child(collision_shape.upcast::<Node>());
+        }
     }
 
     fn set_size(&mut self, size: f32) {
