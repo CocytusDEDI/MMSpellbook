@@ -35,8 +35,7 @@ struct StringConfig {
 pub struct FormConfig {
     pub path: String,
     pub energy_required: f64,
-    pub shape: Shape,
-    pub size: f32
+    pub shape: Shape
 }
 
 pub mod godot_json_saver {

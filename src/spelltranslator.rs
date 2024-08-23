@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, shapecodes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
+use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
 
 const NAME_SIZE: usize = 25;
 
@@ -32,17 +32,6 @@ lazy_static! {
     };
 }
 
-lazy_static! {
-    static ref SHAPE_TO_NUM_MAP: HashMap<[Option<char>; NAME_SIZE], u64> = {
-        let mut shape_map = HashMap::new();
-
-        shape_map.insert(pad_name("sphere"), SPHERE);
-        shape_map.insert(pad_name("box"), BOX);
-
-        shape_map
-    };
-}
-
 fn pad_name(component_name: &str) -> [Option<char>; NAME_SIZE] {
     let mut padded_name = [None; NAME_SIZE];
     for (index, character) in component_name.chars().take(NAME_SIZE).enumerate() {
@@ -53,10 +42,6 @@ fn pad_name(component_name: &str) -> [Option<char>; NAME_SIZE] {
 
 pub fn get_component_num(component_name: &str) -> Option<u64> {
     COMPONENT_TO_NUM_MAP.get(&pad_name(component_name)).cloned()
-}
-
-pub fn get_shape_num(shape_name: &str) -> Option<u64> {
-    SHAPE_TO_NUM_MAP.get(&pad_name(shape_name)).cloned()
 }
 
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
@@ -648,10 +633,6 @@ fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
             .map(|x| f64::to_bits(x as f64))
             .collect::<Vec<u64>>());
             Ok(opcodes)
-        },
-        ("shape", value) => {
-            let destringed_value = value.strip_prefix("\"").and_then(|x| x.strip_suffix("\"")).ok_or("Expected a string (a value starting and ending with \")")?;
-            Ok(vec![SHAPE, get_shape_num(destringed_value).ok_or("Invalid shape value: shape doesn't exist")?])
         }
         _ => Err("Unkown attribute: undefined attribute")
     }

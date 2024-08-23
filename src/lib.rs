@@ -2,8 +2,7 @@ use lazy_static::lazy_static;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::f32::consts::PI;
-use std::f64::consts::E;
+use std::f32::consts::{PI, E};
 
 // Godot imports
 use godot::prelude::*;
@@ -34,7 +33,6 @@ use magical_entity::MagicalEntity;
 use codes::componentcodes::*;
 use codes::attributecodes::*;
 use codes::opcodes::*;
-use codes::shapecodes::*;
 
 // When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 0.1;
@@ -53,8 +51,6 @@ const SPELL_TRANSPARENCY: f32 = 0.9;
 const RADIUS_UPDATE_RATE: usize = 5;
 
 const ENERGY_TO_VOLUME: f32 = 0.01;
-
-const VOLUME_TO_RADIUS: f32 = 0.3;
 
 const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20); // In the format (rings, radial segments)
 
@@ -126,25 +122,62 @@ lazy_static! {
 
 #[derive(Clone, Copy, Deserialize)]
 pub enum Shape {
-    Sphere,
-    Box
+    Sphere(Sphere),
+    Cube(Cube)
 }
 
-trait HasShape {
-    fn set_shape(&mut self, size: f32);
-    fn set_size(&mut self, size: f32);
-    fn set_visibility(&mut self, visible: bool);
-}
-
-impl Shape {
-    fn from_num(number: u64) -> Self {
-        match number {
-            SPHERE => Self::Sphere,
-            BOX => Self::Box,
-            _ => panic!("Shape code doesn't exist")
+impl HasVolume for Shape {
+    fn get_volume(&self) -> f32 {
+        match self {
+            Self::Sphere(sphere) => sphere.get_volume(),
+            Self::Cube(cube) => cube.get_volume()
         }
     }
 }
+
+#[derive(Clone, Copy, Deserialize)]
+pub struct Sphere {
+    radius: f32
+}
+
+impl Sphere {
+    fn from_volume(volume: f32) -> Self {
+        Sphere { radius: Sphere::get_radius_from_volume(volume) }
+    }
+
+    fn get_radius_from_volume(volume: f32) -> f32 {
+        ((3.0 * volume) / (4.0 * PI)).powf(1.0 / 3.0)
+    }
+}
+
+impl HasVolume for Sphere {
+    fn get_volume(&self) -> f32 {
+        (4.0 / 3.0) * PI * self.radius.powi(3)
+    }
+}
+
+#[derive(Clone, Copy, Deserialize)]
+pub struct Cube {
+    length: f32,
+    width: f32,
+    height: f32
+}
+
+impl HasVolume for Cube {
+    fn get_volume(&self) -> f32 {
+        self.length * self.width * self.height
+    }
+}
+
+trait HasVolume {
+    fn get_volume(&self) -> f32;
+}
+
+trait HasShape {
+    fn set_shape(&mut self, shape: Shape);
+    fn set_visibility(&mut self, visible: bool);
+}
+
 
 /// A process is a set of instructions used in the method `physics_process`. A process keeps track of when it should run using a counter.
 struct Process {
@@ -180,8 +213,7 @@ struct Spell {
     energy: f64,
     #[export]
     color: Color,
-    shape: Shape,
-    distorted_size: Option<f32>,
+    shape: Option<Shape>,
     counter: usize,
     #[export]
     energy_lose_rate: f64,
@@ -210,8 +242,7 @@ impl IArea3D for Spell {
             base,
             energy: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
-            shape: Shape::Sphere,
-            distorted_size: None,
+            shape: None,
             counter: 0,
             energy_lose_rate: ENERGY_LOSE_RATE,
             config: Config::get_config().unwrap_or_else(|error| {
@@ -258,7 +289,7 @@ impl IArea3D for Spell {
             None => Basis::default()
         };
 
-        self.update_shape();
+        self.update_natural_shape();
 
         // Execute the spell and get the result
         let spell_result = {
@@ -365,8 +396,8 @@ impl IArea3D for Spell {
         self.energy -= self.energy * self.energy_lose_rate * delta;
 
         // Decreases the radius of the sphere if form isn't set
-        if !self.form_set && self.anchored_to == None && self.counter == 0 {
-            self.update_size();
+        if self.shape.is_none() && self.anchored_to.is_none() && self.counter == 0 {
+            self.update_natural_shape();
         }
 
         self.counter = (self.counter + 1) % RADIUS_UPDATE_RATE;
@@ -740,9 +771,6 @@ impl Spell {
                         [red, green, blue] => self.color = Color{r: red, g: green, b: blue, a: SPELL_TRANSPARENCY},
                         _ => panic!("Failed to parse colors")
                     }
-                },
-                SHAPE => {
-                    self.shape = Shape::from_num(codes.next().expect("Expected shape value after shape code"))
                 }
                 _ => panic!("Invalid attribute")
             }
@@ -768,7 +796,7 @@ impl Spell {
             None => panic!("Expected parent node")
         };
         let distance = (self.base().get_global_position() - parent.get_global_position()).length();
-        if self.get_natural_size(self.energy as f32) >= distance {
+        if Sphere::get_radius_from_volume(self.get_natural_volume(self.energy as f32)) >= distance {
             self.base_mut().set_position(parent.get_global_position());
             self.anchored_to = Some(parent);
             self.base_mut().set_as_top_level(false);
@@ -834,14 +862,13 @@ impl Spell {
         }
         let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
 
-        let size = form_config.size;
-
         let scene: Gd<PackedScene> = load(&form_config.path);
 
+        let shape = form_config.shape;
+
         self.form_set = true;
-        self.shape = form_config.shape;
-        self.set_shape(size);
-        self.distort_size(size);
+        self.shape = Some(shape);
+        self.set_shape(shape);
         self.set_visibility(false);
         let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
         instantiated_scene.set_name(FORM_NAME.into_godot());
@@ -855,49 +882,28 @@ impl Spell {
         self.form_set = false;
         let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME.into_godot());
         form.free();
-        self.distorted_size = None;
-        self.shape = Shape::Sphere;
-        self.update_shape();
+        self.shape = None;
+        self.update_natural_shape();
         if self.anchored_to == None {
             self.set_visibility(true);
         }
     }
 
-    fn update_shape(&mut self) {
-        self.set_shape(self.get_natural_size(self.energy as f32));
+    fn update_natural_shape(&mut self) {
+        self.set_shape(Shape::Sphere(Sphere::from_volume(self.get_natural_volume(self.energy as f32))));
     }
 
-    fn update_size(&mut self) {
-        self.set_size(self.get_natural_size(self.energy as f32));
-    }
-
-    fn get_natural_size(&self, energy: f32) -> f32 {
-        match self.shape {
-            Shape::Sphere => {
-                ((3.0 * self.get_natural_volume(energy)) / (4.0 * PI)).powf(1.0 / 3.0) * VOLUME_TO_RADIUS
-            },
-            Shape::Box => {
-                self.get_natural_volume(energy).powf(1.0/3.0)
-            }
-        }
-    }
-
-    fn distort_size(&mut self, size: f32) {
-        self.distorted_size = Some(size);
-        self.set_size(size);
-    }
-
-    fn get_control_needed_for_distorted_size(&self, distorted_size: Option<f32>) -> f64 {
-        let size = match distorted_size {
-            Some(ref size) => size,
+    fn get_control_needed_for_shape(&self, shape_option: Option<Shape>) -> f32 {
+        let shape = match shape_option {
+            Some(ref shape) => shape,
             None => return 0.0
         };
-        let size_multiplier = (size / self.get_natural_size(self.energy as f32)) as f64;
-        (E.powf(size_multiplier - 1.0) + E.powf((1.0 / size_multiplier) - 1.0) - 2.0) * self.energy
+        let volume_multiplier = shape.get_volume() / self.get_natural_volume(self.energy as f32);
+        (E.powf(volume_multiplier - 1.0) + E.powf((1.0 / volume_multiplier) - 1.0) - 2.0) * self.energy as f32
     }
 
     fn get_control_needed(&self) -> f64 {
-        self.energy + self.get_control_needed_for_distorted_size(self.distorted_size)
+        self.energy + self.get_control_needed_for_shape(self.shape) as f64
     }
 
     fn get_natural_volume(&self, energy: f32) -> f32 {
@@ -906,7 +912,7 @@ impl Spell {
 }
 
 impl HasShape for Spell {
-    fn set_shape(&mut self, size: f32) {
+    fn set_shape(&mut self, shape: Shape) {
         // Collision shape
         let mut collision_shape_exists = false;
 
@@ -938,12 +944,12 @@ impl HasShape for Spell {
         csg_material.set_feature(Feature::EMISSION, true); // Allows spell to emit light
         csg_material.set_emission(self.color); // Chooses what light to emit
 
-        match self.shape {
-            Shape::Sphere => {
+        match shape {
+            Shape::Sphere(sphere) => {
                 // Creating sphere shape
                 let mut shape = SphereShape3D::new_gd();
                 shape.set_name(SPELL_SHAPE_NAME.into_godot());
-                shape.set_radius(size);
+                shape.set_radius(sphere.radius);
                 collision_shape.set_shape(shape.upcast::<Shape3D>());
 
                 // Creating visual representation of spell in godot
@@ -951,15 +957,15 @@ impl HasShape for Spell {
                 csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
                 csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
                 csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
-                csg_sphere.set_radius(size);
+                csg_sphere.set_radius(sphere.radius);
                 csg_sphere.set_material(csg_material);
                 self.base_mut().add_child(csg_sphere.upcast::<Node>());
             },
-            Shape::Box => {
+            Shape::Cube(cube) => {
                 // Creating box shape
                 let mut shape = BoxShape3D::new_gd();
                 shape.set_name(SPELL_SHAPE_NAME.into_godot());
-                let box_size = Vector3 { x: size, y: size, z: size };
+                let box_size = Vector3 { x: cube.width, y: cube.height, z: cube.length };
                 shape.set_size(box_size);
                 collision_shape.set_shape(shape.upcast::<Shape3D>());
 
@@ -977,44 +983,9 @@ impl HasShape for Spell {
         }
     }
 
-    fn set_size(&mut self, size: f32) {
-        let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>(SPELL_COLLISION_SHAPE_NAME);
-        let shape = collsion_shape.get_shape().unwrap();
-
-        match self.shape {
-            Shape::Sphere => {
-                // Radius changing of collision shape
-                let mut sphere_shape = shape.cast::<SphereShape3D>();
-                sphere_shape.set_radius(size);
-
-                // Changing radius of csg sphere
-                let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>(SPELL_CSG_SHAPE_NAME);
-                csg_sphere.set_radius(size);
-            },
-            Shape::Box => {
-                let box_size = Vector3 { x: size, y: size, z: size };
-
-                let mut box_shape = shape.cast::<BoxShape3D>();
-                box_shape.set_size(box_size);
-
-                let mut csg_box = self.base_mut().get_node_as::<CsgBox3D>(SPELL_CSG_SHAPE_NAME);
-                csg_box.set_size(box_size);
-            }
-        }
-    }
-
-
     fn set_visibility(&mut self, visible: bool) {
-        match self.shape {
-            Shape::Sphere => {
-                let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
-                csg_sphere.set_visible(visible);
-            },
-            Shape::Box => {
-                let mut csg_box: Gd<CsgBox3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
-                csg_box.set_visible(visible)
-            }
-        }
+        let mut csg: Gd<CsgPrimitive3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
+        csg.set_visible(visible);
     }
 }
 

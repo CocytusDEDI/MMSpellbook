@@ -146,18 +146,42 @@ impl MagicalEntity {
 
     #[func]
     fn get_control(&mut self) -> f64 {
-        let mut spell_energies: f64 = 0.0;
+        let mut control_for_spells: f64 = 0.0;
         self.spells_cast.retain(|spell| {
             if spell.is_instance_valid() {
                 let spell_bind = spell.bind();
-                spell_energies += spell_bind.get_energy();
+                control_for_spells += spell_bind.get_control_needed();
                 true
             } else {
                 false
             }
         });
 
-        self.max_control * self.get_focus() - spell_energies - self.energy_charged
+        let mut control = self.max_control * self.get_focus() - control_for_spells - self.energy_charged;
+        while control < 0.0 {
+
+            if let Some((index, spell)) = self.spells_cast
+                .iter_mut()
+                .enumerate()
+                .max_by(|(_, spell_one), (_, spell_two)| {
+                    spell_one.bind().get_control_needed()
+                    .total_cmp(&spell_two.bind().get_control_needed())
+                })
+                {
+                    // Free the spell
+                    spell.queue_free();
+                    // Remove the spell from the list of cast spells
+                    self.spells_cast.remove(index);
+                }
+
+            control_for_spells = self.spells_cast.iter()
+                .map(|spell| spell.bind().get_control_needed())
+                .sum();
+
+            control = self.max_control * self.get_focus() - control_for_spells - self.energy_charged;
+
+        }
+        control
     }
 
     #[func]
