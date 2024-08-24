@@ -1,12 +1,12 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
+use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, parametertypes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
 
 const NAME_SIZE: usize = 25;
 
-const ON_READY_NAME: &'static str = "when_created";
-const PROCESS_NAME: &'static str = "repeat";
-const META_DATA_NAME: &'static str = "about";
+const WHEN_CREATED_NAME: &'static str = "when_created";
+const REPEAT_NAME: &'static str = "repeat";
+const ABOUT_NAME: &'static str = "about";
 
 lazy_static! {
     static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; NAME_SIZE], u64> = {
@@ -20,6 +20,8 @@ lazy_static! {
         component_map.insert(pad_name("anchor"), ANCHOR);
         component_map.insert(pad_name("undo_anchor"), UNDO_ANCHOR);
         component_map.insert(pad_name("perish"), PERISH);
+        component_map.insert(pad_name("take_shape"), TAKE_SHAPE);
+        component_map.insert(pad_name("undo_shape"), UNDO_SHAPE);
 
         // Logic:
         component_map.insert(pad_name("moving"), MOVING);
@@ -53,14 +55,14 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
         let trimmed_line = line.trim();
         if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphanumeric() || character == '_' || character == ' ') {
             match trimmed_line.trim_end_matches(':').split_whitespace().collect::<Vec<&str>>()[..] {
-                [ON_READY_NAME] => instructions.push(READY_SECTION),
-                [PROCESS_NAME] => {
-                    instructions.extend(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(1.0)]);
+                [WHEN_CREATED_NAME] => instructions.push(WHEN_CREATED_SECTION),
+                [REPEAT_NAME] => {
+                    instructions.extend(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(1.0)]);
                 },
-                [PROCESS_NAME, "every", num] => {
-                    instructions.extend(vec![PROCESS_SECTION, NUMBER_LITERAL, num.parse::<u64>().map(|num| f64::to_bits(num as f64)).map_err(|_| "Invalid value found after keyword \"every\"")?]);
+                [REPEAT_NAME, "every", num] => {
+                    instructions.extend(vec![REPEAT_SECTION, NUMBER_LITERAL, num.parse::<u64>().map(|num| f64::to_bits(num as f64)).map_err(|_| "Invalid value found after keyword \"every\"")?]);
                 },
-                [META_DATA_NAME] => instructions.push(METADATA_SECTION),
+                [ABOUT_NAME] => instructions.push(ABOUT_SECTION),
                 _ => return Err("Invalid section name")
             };
             in_section = instructions.last().copied();
@@ -69,8 +71,8 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
                 return Err("Must begin with section statement");
             }
 
-            if Some(METADATA_SECTION) == in_section {
-                if trimmed_line.contains('=') { // Indicates an assignment of metadata
+            if Some(ABOUT_SECTION) == in_section {
+                if trimmed_line.contains('=') { // Indicates an assignment of about section data
                     instructions.extend(parse_about_line(trimmed_line)?);
                     continue
                 } else if trimmed_line == "" {
@@ -598,8 +600,8 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
     }
 
     match parameter_type {
-        1 => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().map_err(|_| "Couldn't parse parameter: should be float")?)),
-        2 => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().map_err(|_| "Couldn't parse parameter: should be boolean")?)),
+        FLOAT => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().map_err(|_| "Couldn't parse parameter: should be float")?)),
+        BOOLEAN => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().map_err(|_| "Couldn't parse parameter: should be boolean")?)),
         _ => Err("Invalid parameters: parameter doesn't match expected type")
     }
 }
@@ -655,22 +657,22 @@ mod tests {
 
     #[test]
     fn parse_basic_spell() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![READY_SECTION, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
+        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
     }
 
     #[test]
     fn parse_basic_repeat() {
-        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)"), Ok(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(1.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
+        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)"), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(1.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
     }
 
     #[test]
     fn parse_advanced_repeat() {
-        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)"), Ok(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(2.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)"), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(2.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
     #[test]
     fn parse_advanced_repeat_with_irregular_spacing() {
-        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![PROCESS_SECTION, NUMBER_LITERAL, f64::to_bits(3.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(3.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
 
@@ -696,27 +698,27 @@ mod tests {
 
     #[test]
     fn parse_about_section(){
-        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![METADATA_SECTION, COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
+        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![ABOUT_SECTION, COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
     }
 
     #[test]
     fn parse_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![READY_SECTION, IF, FALSE, 0, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, 0]))
+        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
     }
 
     #[test]
     fn parse_advanced_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![READY_SECTION, IF, FALSE, COMPONENT, GET_TIME, NUMBER_LITERAL, f64::to_bits(5.0), GREATER_THAN, OR, 0, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, 0]))
+        assert_eq!(parse_spell("when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, COMPONENT, GET_TIME, NUMBER_LITERAL, f64::to_bits(5.0), GREATER_THAN, OR, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
     }
 
     #[test]
     fn parse_component_as_parameter() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)"), Ok(vec![READY_SECTION, COMPONENT, GIVE_VELOCITY, COMPONENT, GET_TIME, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)"), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, COMPONENT, GET_TIME, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
     #[test]
     fn parse_complex_spell() {
-        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![METADATA_SECTION, COLOR,f64::to_bits(1.0),0,f64::to_bits(1.0),READY_SECTION,COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(1.0),NUMBER_LITERAL,0,NUMBER_LITERAL,0,PROCESS_SECTION,NUMBER_LITERAL,f64::to_bits(5.0),COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(0.1),NUMBER_LITERAL,0,NUMBER_LITERAL,0]))
+        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![ABOUT_SECTION, COLOR,f64::to_bits(1.0),0,f64::to_bits(1.0),WHEN_CREATED_SECTION,COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(1.0),NUMBER_LITERAL,0,NUMBER_LITERAL,0,REPEAT_SECTION,NUMBER_LITERAL,f64::to_bits(5.0),COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(0.1),NUMBER_LITERAL,0,NUMBER_LITERAL,0]))
     }
 
     /// Ensures all components in the COMPONENT_TO_NUM_MAP are in the COMPONENT_TO_FUNCTION_MAP

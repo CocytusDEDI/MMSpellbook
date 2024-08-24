@@ -33,29 +33,35 @@ use magical_entity::MagicalEntity;
 use codes::componentcodes::*;
 use codes::attributecodes::*;
 use codes::opcodes::*;
+use codes::parametertypes::*;
 
-// When a spell has energy below this level it is discarded as being insignificant
+/// When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 0.1;
 
-// Used to control how fast efficiency increases with each cast
+/// Used to control how fast efficiency increases with each cast
 const EFFICIENCY_INCREASE_RATE: f64 = 15.0;
 
-// Used to control how fast energy is lost passively over time. Is a fraction of total spell energy.
+/// Used to control how fast energy is lost passively over time. Is a fraction of total spell energy
 const ENERGY_LOSE_RATE: f64 = 0.05;
 
 const MASS_MOVEMENT_COST: f64 = 0.5;
 
-// Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
+/// Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
 const SPELL_TRANSPARENCY: f32 = 0.9;
 
+/// The frequency at which the radius of a spell is updated (if the shape isn't set). If the number was five, it would update every five physics frames
 const RADIUS_UPDATE_RATE: usize = 5;
 
+/// A number used in the conversion of energy to volume, if changed effects the size of spells
 const ENERGY_TO_VOLUME: f32 = 0.01;
 
-const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20); // In the format (rings, radial segments)
+/// In the format (rings, radial segments). Determins the detail on the visible sphere of spells.
+const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20);
 
+/// The default colour of spells
 const DEFAULT_COLOR: CustomColor = CustomColor { r: 1.0, g: 1.0, b: 1.0 };
 
+// The names of child nodes of the spell. Can be changed if you wish to use them yourself instead
 const SPELL_COLLISION_SHAPE_NAME: &'static str = "spell_collision_shape";
 const SPELL_SHAPE_NAME: &'static str = "spell_shape";
 const SPELL_CSG_SHAPE_NAME: &'static str = "spell_csg_shape";
@@ -91,13 +97,13 @@ enum ReturnType {
     None
 }
 
-const COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
-const COMPONENT_1_ARGS: &[u64] = &[1];
+const COMPONENT_0_ARGS: &[u64] = &[FLOAT, FLOAT, FLOAT];
+const COMPONENT_1_ARGS: &[u64] = &[FLOAT];
 const COMPONENT_2_ARGS: &[u64] = &[];
+const COMPONENT_7_ARGS: &[u64] = &[FLOAT, FLOAT, FLOAT, FLOAT];
 
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
-    // The u64 type conversion goes as follows: 1 = f64, 2 = bool
     static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
         // Utility:
@@ -108,6 +114,8 @@ lazy_static! {
         component_map.insert(ANCHOR, (component_functions::anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
         component_map.insert(UNDO_ANCHOR, (component_functions::undo_anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
         component_map.insert(PERISH, (component_functions::perish as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(TAKE_SHAPE, (component_functions::take_shape as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_7_ARGS, ReturnType::None));
+        component_map.insert(UNDO_SHAPE, (component_functions::undo_shape as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
 
         // Logic:
         component_map.insert(MOVING, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
@@ -121,7 +129,7 @@ lazy_static! {
 }
 
 #[derive(Clone, Copy, Deserialize)]
-pub enum Shape {
+enum Shape {
     Sphere(Sphere),
     Cube(Cube)
 }
@@ -136,7 +144,7 @@ impl HasVolume for Shape {
 }
 
 #[derive(Clone, Copy, Deserialize)]
-pub struct Sphere {
+struct Sphere {
     radius: f32
 }
 
@@ -157,7 +165,7 @@ impl HasVolume for Sphere {
 }
 
 #[derive(Clone, Copy, Deserialize)]
-pub struct Cube {
+struct Cube {
     length: f32,
     width: f32,
     height: f32
@@ -332,7 +340,7 @@ impl IArea3D for Spell {
             return
         }
 
-        // handle instructions
+        // Handle instructions
         let mut instructions = std::mem::take(&mut self.process_instructions);
         for process in instructions.iter_mut() {
             // Handle instructions, frees the spell if it fails
@@ -661,13 +669,13 @@ impl Spell {
         let mut instructions_iter = instructions.iter();
         let mut section: Option<u64> = None;
         while let Some(&bits) = instructions_iter.next() {
-            if section.is_some_and(|x| x == METADATA_SECTION) && !(READY_SECTION..=599).contains(&bits)  { // ignore all checks in metadata section
+            if section.is_some_and(|x| x == ABOUT_SECTION) && !(WHEN_CREATED_SECTION..=ABOUT_SECTION).contains(&bits)  {
                 continue;
             }
             match bits {
                 NUMBER_LITERAL => _ = instructions_iter.next(),
                 COMPONENT => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter, &component_catalogue)?,
-                READY_SECTION..=METADATA_SECTION => {
+                WHEN_CREATED_SECTION..=ABOUT_SECTION => {
                     section = Some(bits)
                 },
                 _ => {}
@@ -721,16 +729,16 @@ impl Spell {
                     let something = *instructions_iter.next().expect("Expected number after literal opcode");
                     section_instructions.push(something);
                 },
-                READY_SECTION..=METADATA_SECTION => { // Section opcodes
+                WHEN_CREATED_SECTION..=ABOUT_SECTION => {
                     match last_section {
                         END_OF_SCOPE => {},
-                        READY_SECTION => self.ready_instructions = section_instructions.clone(),
-                        PROCESS_SECTION => {
-                            section_instructions.remove(0);
+                        WHEN_CREATED_SECTION => self.ready_instructions = section_instructions.clone(),
+                        REPEAT_SECTION => {
+                            section_instructions.remove(0); // Removes the number literal opcode
                             self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
                         },
-                        METADATA_SECTION => {
-                            self.set_meta_data(section_instructions.clone())
+                        ABOUT_SECTION => {
+                            self.set_about_section(section_instructions.clone())
                         },
                         _ => panic!("Invalid section")
                     }
@@ -742,22 +750,22 @@ impl Spell {
             }
         }
 
-        // match the end section
+        // Match the finial section
         match last_section {
             END_OF_SCOPE => {},
-            READY_SECTION => self.ready_instructions = section_instructions.clone(),
-            PROCESS_SECTION => {
+            WHEN_CREATED_SECTION => self.ready_instructions = section_instructions.clone(),
+            REPEAT_SECTION => {
                 section_instructions.remove(0);
                 self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
             },
-            METADATA_SECTION => {
-                self.set_meta_data(section_instructions.clone())
+            ABOUT_SECTION => {
+                self.set_about_section(section_instructions.clone())
             },
             _ => panic!("Invalid section")
         }
     }
 
-    fn set_meta_data(&mut self, attributes: Vec<u64>) {
+    fn set_about_section(&mut self, attributes: Vec<u64>) {
         let mut codes = attributes.into_iter();
         while let Some(code) = codes.next() {
             match code {

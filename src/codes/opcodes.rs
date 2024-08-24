@@ -1,4 +1,4 @@
-pub const END_OF_SCOPE:u64 = 0;
+pub const END_OF_SCOPE: u64 = 0;
 
 pub const TRUE: u64 = 100;
 pub const FALSE: u64 = 101;
@@ -17,9 +17,9 @@ pub const LESSER_THAN: u64 = 302;
 
 pub const IF: u64 = 400;
 
-pub const READY_SECTION: u64 = 500;
-pub const PROCESS_SECTION: u64 = 501;
-pub const METADATA_SECTION: u64 = 502;
+pub const WHEN_CREATED_SECTION: u64 = 500;
+pub const REPEAT_SECTION: u64 = 501;
+pub const ABOUT_SECTION: u64 = 502;
 
 pub const MULTIPLY: u64 = 600;
 pub const DIVIDE: u64 = 601;
