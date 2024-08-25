@@ -33,7 +33,7 @@ use magical_entity::MagicalEntity;
 use codes::componentcodes::*;
 use codes::attributecodes::*;
 use codes::opcodes::*;
-use codes::parametertypes::*;
+use codes::datatypes::*;
 
 /// When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 0.1;
@@ -53,13 +53,13 @@ const SPELL_TRANSPARENCY: f32 = 0.9;
 const RADIUS_UPDATE_RATE: usize = 5;
 
 /// A number used in the conversion of energy to volume, if changed effects the size of spells
-const ENERGY_TO_VOLUME: f32 = 0.01;
+const ENERGY_TO_VOLUME: f32 = 0.001;
 
 /// In the format (rings, radial segments). Determins the detail on the visible sphere of spells.
 const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20);
 
 /// The default colour of spells
-const DEFAULT_COLOR: CustomColor = CustomColor { r: 1.0, g: 1.0, b: 1.0 };
+const DEFAULT_COLOR: CustomColor = CustomColor { r: 0.1, g: 0.0, b: 0.9 };
 
 // The names of child nodes of the spell. Can be changed if you wish to use them yourself instead
 const SPELL_COLLISION_SHAPE_NAME: &'static str = "spell_collision_shape";
@@ -222,6 +222,7 @@ struct Spell {
     #[export]
     color: Color,
     shape: Option<Shape>,
+    charge_to_shape: bool,
     counter: usize,
     #[export]
     energy_lose_rate: f64,
@@ -251,6 +252,7 @@ impl IArea3D for Spell {
             energy: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
             shape: None,
+            charge_to_shape: true,
             counter: 0,
             energy_lose_rate: ENERGY_LOSE_RATE,
             config: Config::get_config().unwrap_or_else(|error| {
@@ -402,6 +404,9 @@ impl IArea3D for Spell {
 
         // Handle energy lose
         self.energy -= self.energy * self.energy_lose_rate * delta;
+
+        // Makes the energy to the spell match the energy needed for the shape
+        self.handle_charge_to_shape();
 
         // Decreases the radius of the sphere if form isn't set
         if self.shape.is_none() && self.anchored_to.is_none() && self.counter == 0 {
@@ -780,6 +785,9 @@ impl Spell {
                         _ => panic!("Failed to parse colors")
                     }
                 }
+                CHARGE_TO_SHAPE => {
+                    self.charge_to_shape = boolean_logic::num_to_bool(codes.next().expect("Expected boolean after charge_to_shape")).unwrap_or_else(|err| panic!("{err}"));
+                }
                 _ => panic!("Invalid attribute")
             }
         }
@@ -897,6 +905,22 @@ impl Spell {
         }
     }
 
+    fn handle_charge_to_shape(&mut self) {
+        if self.charge_to_shape {
+            match self.shape {
+                Some(ref shape) => {
+                    let energy_needed = self.get_natural_energy(shape.get_volume()) as f64;
+                    if energy_needed > self.energy {
+                        self.energy_requested = energy_needed - self.energy;
+                    } else {
+                        self.energy = energy_needed;
+                    }
+                },
+                None => {}
+            }
+        }
+    }
+
     fn update_natural_shape(&mut self) {
         self.set_shape(Shape::Sphere(Sphere::from_volume(self.get_natural_volume(self.energy as f32))));
     }
@@ -916,6 +940,11 @@ impl Spell {
 
     fn get_natural_volume(&self, energy: f32) -> f32 {
         f32::ln(ENERGY_TO_VOLUME * (energy) + 1.0).powi(2)
+    }
+
+    // get_natural_energy is the inverse function of get_natural_volume
+    fn get_natural_energy(&self, volume: f32) -> f32 {
+        (E.powf(volume.sqrt()) - 1.0) / ENERGY_TO_VOLUME
     }
 }
 
@@ -1150,6 +1179,21 @@ mod boolean_logic { // 100 = true, 101 = false
             TRUE => Ok(FALSE),
             FALSE => Ok(TRUE),
             _ => Err("Not can only be used on booleans")
+        }
+    }
+
+    pub fn bool_to_num(boolean: bool) -> u64 {
+        match boolean {
+            true => TRUE,
+            false => FALSE
+        }
+    }
+
+    pub fn num_to_bool(num: u64) -> Result<bool, &'static str> {
+        match num {
+            TRUE => Ok(true),
+            FALSE => Ok(false),
+            _ => Err("Invalid number: Cannot translate to boolean")
         }
     }
 }

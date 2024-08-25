@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, parametertypes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
+use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
 
 const NAME_SIZE: usize = 25;
 
@@ -34,6 +34,28 @@ lazy_static! {
     };
 }
 
+enum Datatype {
+    List(List),
+    Boolean
+}
+
+struct List {
+    datatype: u64,
+    size: usize
+}
+
+lazy_static! {
+    /// Maps attribute name to (attribute_code, datatype, size)
+    static ref ATTRIBUTES_MAP: HashMap<[Option<char>; NAME_SIZE], (u64, Datatype)> = {
+        let mut attribute_map = HashMap::new();
+
+        attribute_map.insert(pad_name("color"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
+        attribute_map.insert(pad_name("colour"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
+        attribute_map.insert(pad_name("charge_to_shape"), (CHARGE_TO_SHAPE, Datatype::Boolean));
+        attribute_map
+    };
+}
+
 fn pad_name(component_name: &str) -> [Option<char>; NAME_SIZE] {
     let mut padded_name = [None; NAME_SIZE];
     for (index, character) in component_name.chars().take(NAME_SIZE).enumerate() {
@@ -44,6 +66,10 @@ fn pad_name(component_name: &str) -> [Option<char>; NAME_SIZE] {
 
 pub fn get_component_num(component_name: &str) -> Option<u64> {
     COMPONENT_TO_NUM_MAP.get(&pad_name(component_name)).cloned()
+}
+
+fn get_attribute_info(attribute_name: &str) -> Option<&(u64, Datatype)> {
+    ATTRIBUTES_MAP.get(&pad_name(attribute_name))
 }
 
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
@@ -607,36 +633,46 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parame
 }
 
 fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
-    let (name, value) = equation.split_once('=').ok_or_else(|| "There must be an equals sign in an about line")?;
+    let (mut name, mut value) = equation.split_once('=').ok_or_else(|| "There must be an equals sign in an about line")?;
     
-    match (name.trim(), value.trim()) {
-        ("colour", values) | ("color", values) => {
-            let mut opcodes = vec![COLOR];
-            opcodes.extend(match match values.strip_prefix('[')
-            .and_then(|x| x.strip_suffix(']'))
-            .ok_or_else(|| "Invalid color values: should be a list in the form `[value, value, value]`")?
-            
-            .split(',').collect::<Vec<&str>>()[..] {
-                [a, b, c] => [a, b, c],
-                _ => return Err("Invalid number of values: color attribute should have 3 values")
-            }.into_iter()
-            
-            .map(str::trim)
-            .map(str::parse::<f32>)
-            .collect::<Result<Vec<f32>, _>>()
-            .map_err(|_| "Invalid color values: all values should be numbers")?.into_iter()
-            
-            .filter(|x| (0.0..=1.0).contains(x))
-            .collect::<Vec<f32>>()[..]{
-                [a, b, c] => [a, b, c],
-                _ => return Err("Invalid color values: values should be between 0 and 1")
-            }.into_iter()
-            
-            .map(|x| f64::to_bits(x as f64))
-            .collect::<Vec<u64>>());
-            Ok(opcodes)
+    name = name.trim();
+    value = value.trim();
+
+    let (mut attribute_line, datatype) = match get_attribute_info(name) {
+        Some((attribute_num, datatype)) => (vec![*attribute_num], datatype),
+        None => return Err("Invalid attribute: attribute doesn't exist")
+    };
+
+    match datatype {
+        Datatype::List(list) => {
+            let str_value_list = value.strip_prefix('[')
+                .and_then(|x| x.strip_suffix(']'))
+                .ok_or("Invalid value: Should be a list starting with [ and ending with ]")?
+                .split(',').map(str::trim).collect::<Vec<&str>>();
+
+            if str_value_list.len() > list.size {
+                return Err("Invalid value: List is too long")
+            }
+            if str_value_list.len() < list.size {
+                return Err("Invalid value: List is too short")
+            }
+
+            if list.datatype == FLOAT {
+                attribute_line.extend(str_value_list.into_iter()
+                    .map(str::parse::<f64>)
+                    .collect::<Result<Vec<f64>, _>>()
+                    .map_err(|_| "Invalid value: value in this list is not a float")?.into_iter()
+                    .map(f64::to_bits)
+                    .collect::<Vec<u64>>());
+                return Ok(attribute_line)
+            }
+
+            Err("The datatype used in the list is not supported")
+        },
+        Datatype::Boolean => {
+            attribute_line.push(boolean_logic::bool_to_num(value.parse::<bool>().map_err(|_| "Expected boolean value")?));
+            Ok(attribute_line)
         }
-        _ => Err("Unkown attribute: undefined attribute")
     }
 }
 
@@ -678,27 +714,26 @@ mod tests {
 
     #[test]
     fn parse_spell_color() {
-        assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
-        assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]));
+        assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]));
+        assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]));
     }
     
     #[test]
     fn parse_invalid_spell_color() {
-        assert_eq!(parse_about_line("color = [0.212, 1, 2.3]"), Err("Invalid color values: values should be between 0 and 1"));
-        assert_eq!(parse_about_line("color = [0.212, 1, 0.3,]"), Err("Invalid number of values: color attribute should have 3 values"));
-        assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid color values: should be a list in the form `[value, value, value]`"));
-        assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid color values: should be a list in the form `[value, value, value]`"));
-        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid color values: all values should be numbers"));
+        assert_eq!(parse_about_line("color = [0.212, 1, 0.3,]"), Err("Invalid value: List is too long"));
+        assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid value: Should be a list starting with [ and ending with ]"));
+        assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid value: Should be a list starting with [ and ending with ]"));
+        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid value: value in this list is not a float"));
     }
 
     #[test]
     fn parse_spell_color_with_irregular_spacing() {
-        assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![COLOR, f64::to_bits((0.212 as f32) as f64), f64::to_bits((1 as f32) as f64), f64::to_bits((0.3 as f32) as f64)]));
+        assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![COLOR, f64::to_bits(0.212), f64::to_bits(1.0), f64::to_bits(0.3)]));
     }
 
     #[test]
     fn parse_about_section(){
-        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![ABOUT_SECTION, COLOR, f64::to_bits((0.4 as f32) as f64), 0, f64::to_bits((0.8 as f32) as f64)]))
+        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![ABOUT_SECTION, COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]))
     }
 
     #[test]

@@ -108,6 +108,7 @@ pub fn take_shape(spell: &mut Spell, parameters: &[u64], should_execute: bool) -
     };
 
     spell.shape = Some(shape);
+    spell.handle_charge_to_shape();
     spell.set_shape(shape);
 
     return None
