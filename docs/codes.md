@@ -1,0 +1,1 @@
+Too see the meanings of the codes (Number that are used in the program to mean certain things), please refer to the folder `src/codes`, this is both the code used in the program and the documentation. This ensures that what you see is what you get, if a code doesn't exist in the file, it doesn't exist in (this copy) of the program.

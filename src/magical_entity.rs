@@ -10,11 +10,20 @@ use godot::prelude::*;
 use godot::classes::CharacterBody3D;
 use godot::classes::ICharacterBody3D;
 
+/// Is a constant used in the function that translates focus level to focus
 const FOCUS_LEVEL_TO_FOCUS: f64 = 0.2;
-const FOCUS_LOSE_FROM_CASTING: f64 = 0.01;
-const FOCUS_LOSE_FROM_ENERGY_CHARGED: f64 = 0.001;
+
+/// Determins how much focus is lost over time due to both energy charged and spell energies
+const FOCUS_LOSE_FROM_ENERGY: f64 = 0.001;
+
+/// Determins how fast energy charge is lost over time
 const ENERGY_CHARGED_LOSE_RATE: f64 = 0.01;
+
+/// Is used to determin how fast focus level moves back towards 0
 const DEFAULT_PASSIVE_FOCUS_CHANGE_RATE: f64 = 0.001;
+
+/// Determins how far control can dip to before a spell is freed. Is needed to prevent spells from being freed after casting a spell with no control left
+const CONTROL_DIP_ALLOWANCE: f64 = -0.1;
 
 #[derive(Deserialize, Serialize)]
 pub struct SpellCatalogue {
@@ -133,7 +142,7 @@ impl MagicalEntity {
         self.base_mut().queue_free();
     }
 
-    /// Focus factors into current power output and current control. Focus ranges from 0 to 2 with the default state being 1.
+    /// Focus factors into current power output and current control. Focus ranges from 0 to 2 with the default state being 1
     #[func]
     fn get_focus(&self) -> f64 {
         2.0 / (1.0 + E.powf(-self.focus_level * FOCUS_LEVEL_TO_FOCUS))
@@ -146,18 +155,42 @@ impl MagicalEntity {
 
     #[func]
     fn get_control(&mut self) -> f64 {
-        let mut spell_energies: f64 = 0.0;
+        let mut control_for_spells: f64 = 0.0;
         self.spells_cast.retain(|spell| {
             if spell.is_instance_valid() {
                 let spell_bind = spell.bind();
-                spell_energies += spell_bind.get_energy();
+                control_for_spells += spell_bind.get_control_needed();
                 true
             } else {
                 false
             }
         });
 
-        self.max_control * self.get_focus() - spell_energies - self.energy_charged
+        let mut control = self.max_control * self.get_focus() - control_for_spells - self.energy_charged;
+
+        // Frees the largest spells until control is possitive
+        while control < CONTROL_DIP_ALLOWANCE {
+            if let Some((index, spell)) = self.spells_cast
+                .iter_mut()
+                .enumerate()
+                .max_by(|(_, spell_one), (_, spell_two)| {
+                    spell_one.bind().get_control_needed()
+                    .total_cmp(&spell_two.bind().get_control_needed())
+                }) {
+                    // Free the spell
+                    spell.queue_free();
+                    // Remove the spell from the list of cast spells
+                    self.spells_cast.remove(index);
+            }
+
+            control_for_spells = self.spells_cast.iter()
+                .map(|spell| spell.bind().get_control_needed())
+                .sum();
+
+            control = self.max_control * self.get_focus() - control_for_spells - self.energy_charged;
+
+        }
+        control
     }
 
     #[func]
@@ -210,7 +243,7 @@ impl MagicalEntity {
         }
 
         self.reduce_energy_charged(delta);
-        self.reduce_focus_due_to_energy_charged(delta);
+        self.reduce_focus(delta);
         self.passive_focus_stabilising(DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, DEFAULT_PASSIVE_FOCUS_CHANGE_RATE, delta); // TODO: Handle changing passive_focus_stabilising_rate
         self.fulfil_recharge_requests();
     }
@@ -234,8 +267,9 @@ impl MagicalEntity {
     }
 
     #[func]
-    fn reduce_focus_due_to_energy_charged(&mut self, delta: f64) {
-        self.focus_level -= self.energy_charged * FOCUS_LOSE_FROM_ENERGY_CHARGED * delta / self.max_power;
+    fn reduce_focus(&mut self, delta: f64) {
+        self.focus_level -= FOCUS_LOSE_FROM_ENERGY * self.energy_charged * delta / self.max_power;
+        self.focus_level -= FOCUS_LOSE_FROM_ENERGY * self.spells_cast.iter().map(|x| x.bind().get_control_needed()).sum::<f64>() * delta / self.max_power;
     }
 
     #[func]
@@ -260,7 +294,9 @@ impl MagicalEntity {
 
     #[func]
     fn cast_spell(&mut self) {
-        if self.energy_charged * self.energy_selected < ENERGY_CONSIDERATION_LEVEL {
+        let energy = self.energy_charged * self.energy_selected;
+
+        if energy < ENERGY_CONSIDERATION_LEVEL {
             return
         }
 
@@ -276,7 +312,7 @@ impl MagicalEntity {
         {
             let mut spell_bind = spell.bind_mut();
 
-            spell_bind.set_energy(self.energy_charged * self.energy_selected);
+            spell_bind.set_energy(energy);
             spell_bind.set_color(self.spell_color);
             spell_bind.connect_player(self.to_gd().upcast());
             spell_bind.internal_set_efficiency_levels(self.component_efficiency_levels.clone());
@@ -287,8 +323,7 @@ impl MagicalEntity {
         self.base_mut().add_child(&spell);
         self.spells_cast.push(spell);
 
-        self.focus_level -= FOCUS_LOSE_FROM_CASTING * self.energy_charged * self.energy_selected / self.max_power;
-        self.energy_charged -= self.energy_charged * self.energy_selected;
+        self.energy_charged -= energy;
     }
 
     #[func]

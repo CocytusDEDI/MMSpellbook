@@ -1,1 +1,0 @@
-0 = colour/color [r: float, g: float, b: float]
