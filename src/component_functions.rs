@@ -103,7 +103,7 @@ pub fn take_shape(spell: &mut Spell, parameters: &[u64], should_execute: bool) -
 
     let shape = match shape_num {
         SPHERE => Shape::Sphere(Sphere { radius: size_1 }),
-        CUBE => Shape::Cube(Cube { length: size_1, width: size_2, height: size_3 }),
+        CUBE => Shape::Cube(Cube { x: size_1, y: size_2, z: size_3 }),
         _ => panic!("Not a valid shape")
     };
 

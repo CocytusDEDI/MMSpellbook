@@ -142,7 +142,7 @@ impl MagicalEntity {
         self.base_mut().queue_free();
     }
 
-    /// Focus factors into current power output and current control. Focus ranges from 0 to 2 with the default state being 1.
+    /// Focus factors into current power output and current control. Focus ranges from 0 to 2 with the default state being 1
     #[func]
     fn get_focus(&self) -> f64 {
         2.0 / (1.0 + E.powf(-self.focus_level * FOCUS_LEVEL_TO_FOCUS))

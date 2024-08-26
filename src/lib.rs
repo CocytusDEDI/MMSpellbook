@@ -166,14 +166,14 @@ impl HasVolume for Sphere {
 
 #[derive(Clone, Copy, Deserialize)]
 struct Cube {
-    length: f64,
-    width: f64,
-    height: f64
+    x: f64,
+    y: f64,
+    z: f64
 }
 
 impl HasVolume for Cube {
     fn get_volume(&self) -> f64 {
-        self.length * self.width * self.height
+        self.x * self.y * self.z
     }
 }
 
@@ -884,10 +884,12 @@ impl Spell {
 
         self.form_set = true;
         self.shape = Some(shape);
+        self.handle_charge_to_shape();
         self.set_shape(shape);
         self.set_visibility(false);
-        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
+        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene").cast::<Node3D>();
         instantiated_scene.set_name(FORM_NAME.into_godot());
+        instantiated_scene.set_basis(self.original_direction);
         self.base_mut().add_child(instantiated_scene);
     }
 
@@ -1002,15 +1004,17 @@ impl HasShape for Spell {
                 // Creating box shape
                 let mut shape = BoxShape3D::new_gd();
                 shape.set_name(SPELL_SHAPE_NAME.into_godot());
-                let box_size = Vector3 { x: cube.width as f32, y: cube.height as f32, z: cube.length as f32 };
+                let box_size = Vector3 { x: cube.x as f32, y: cube.y as f32, z: cube.z as f32 };
                 shape.set_size(box_size);
                 collision_shape.set_shape(shape.upcast::<Shape3D>());
+                collision_shape.set_basis(self.original_direction);
 
                 // Creating visual representation of spell in godot
                 let mut csg_box = CsgBox3D::new_alloc();
                 csg_box.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
                 csg_box.set_size(box_size);
                 csg_box.set_material(csg_material);
+                csg_box.set_basis(self.original_direction);
                 self.base_mut().add_child(csg_box.upcast::<Node>());
             }
         };
