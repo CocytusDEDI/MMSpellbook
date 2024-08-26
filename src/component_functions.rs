@@ -97,9 +97,9 @@ pub fn take_shape(spell: &mut Spell, parameters: &[u64], should_execute: bool) -
     spell.undo_form();
 
     let shape_num = f64::from_bits(parameters[0]) as u64;
-    let size_1 = f64::from_bits(parameters[1]) as f32;
-    let size_2 = f64::from_bits(parameters[2]) as f32;
-    let size_3 = f64::from_bits(parameters[3]) as f32;
+    let size_1 = f64::from_bits(parameters[1]);
+    let size_2 = f64::from_bits(parameters[2]);
+    let size_3 = f64::from_bits(parameters[3]);
 
     let shape = match shape_num {
         SPHERE => Shape::Sphere(Sphere { radius: size_1 }),
@@ -121,7 +121,7 @@ pub fn undo_shape(spell: &mut Spell, _parameters: &[u64], should_execute: bool) 
 
     spell.undo_form();
 
-    spell.set_shape(Shape::Sphere(Sphere::from_volume(spell.get_natural_volume(spell.energy as f32))));
+    spell.set_shape(Shape::Sphere(Sphere::from_volume(spell.get_natural_volume(spell.energy))));
 
     return None
 }

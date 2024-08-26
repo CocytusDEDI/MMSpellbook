@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::f32::consts::{PI, E};
+use std::f64::consts::{PI, E};
 
 // Godot imports
 use godot::prelude::*;
@@ -53,7 +53,7 @@ const SPELL_TRANSPARENCY: f32 = 0.9;
 const RADIUS_UPDATE_RATE: usize = 5;
 
 /// A number used in the conversion of energy to volume, if changed effects the size of spells
-const ENERGY_TO_VOLUME: f32 = 0.0005;
+const ENERGY_TO_VOLUME: f64 = 0.0005;
 
 /// In the format (rings, radial segments). Determins the detail on the visible sphere of spells.
 const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20);
@@ -135,7 +135,7 @@ enum Shape {
 }
 
 impl HasVolume for Shape {
-    fn get_volume(&self) -> f32 {
+    fn get_volume(&self) -> f64 {
         match self {
             Self::Sphere(sphere) => sphere.get_volume(),
             Self::Cube(cube) => cube.get_volume()
@@ -145,40 +145,40 @@ impl HasVolume for Shape {
 
 #[derive(Clone, Copy, Deserialize)]
 struct Sphere {
-    radius: f32
+    radius: f64
 }
 
 impl Sphere {
-    fn from_volume(volume: f32) -> Self {
+    fn from_volume(volume: f64) -> Self {
         Sphere { radius: Sphere::get_radius_from_volume(volume) }
     }
 
-    fn get_radius_from_volume(volume: f32) -> f32 {
+    fn get_radius_from_volume(volume: f64) -> f64 {
         ((3.0 * volume) / (4.0 * PI)).powf(1.0 / 3.0)
     }
 }
 
 impl HasVolume for Sphere {
-    fn get_volume(&self) -> f32 {
+    fn get_volume(&self) -> f64 {
         (4.0 / 3.0) * PI * self.radius.powi(3)
     }
 }
 
 #[derive(Clone, Copy, Deserialize)]
 struct Cube {
-    length: f32,
-    width: f32,
-    height: f32
+    length: f64,
+    width: f64,
+    height: f64
 }
 
 impl HasVolume for Cube {
-    fn get_volume(&self) -> f32 {
+    fn get_volume(&self) -> f64 {
         self.length * self.width * self.height
     }
 }
 
 trait HasVolume {
-    fn get_volume(&self) -> f32;
+    fn get_volume(&self) -> f64;
 }
 
 trait HasShape {
@@ -811,8 +811,8 @@ impl Spell {
             Some(node) => node.cast::<MagicalEntity>(),
             None => panic!("Expected parent node")
         };
-        let distance = (self.base().get_global_position() - parent.get_global_position()).length();
-        if Sphere::get_radius_from_volume(self.get_natural_volume(self.energy as f32)) >= distance {
+        let distance = (self.base().get_global_position() - parent.get_global_position()).length() as f64;
+        if Sphere::get_radius_from_volume(self.get_natural_volume(self.energy)) >= distance {
             self.base_mut().set_position(parent.get_global_position());
             self.anchored_to = Some(parent);
             self.base_mut().set_as_top_level(false);
@@ -909,7 +909,7 @@ impl Spell {
         if self.charge_to_shape {
             match self.shape {
                 Some(ref shape) => {
-                    let energy_needed = self.get_natural_energy(shape.get_volume()) as f64;
+                    let energy_needed = self.get_natural_energy(shape.get_volume());
                     if energy_needed > self.energy {
                         self.energy_requested = energy_needed - self.energy;
                     } else {
@@ -922,28 +922,28 @@ impl Spell {
     }
 
     fn update_natural_shape(&mut self) {
-        self.set_shape(Shape::Sphere(Sphere::from_volume(self.get_natural_volume(self.energy as f32))));
+        self.set_shape(Shape::Sphere(Sphere::from_volume(self.get_natural_volume(self.energy))));
     }
 
-    fn get_control_needed_for_shape(&self, shape_option: Option<Shape>) -> f32 {
+    fn get_control_needed_for_shape(&self, shape_option: Option<Shape>) -> f64 {
         let shape = match shape_option {
             Some(ref shape) => shape,
             None => return 0.0
         };
-        let volume_multiplier = shape.get_volume() / self.get_natural_volume(self.energy as f32);
-        (E.powf(volume_multiplier - 1.0) + E.powf((1.0 / volume_multiplier) - 1.0) - 2.0) * self.energy as f32
+        let volume_multiplier = shape.get_volume() / self.get_natural_volume(self.energy);
+        (E.powf(volume_multiplier - 1.0) + E.powf((1.0 / volume_multiplier) - 1.0) - 2.0) * self.energy
     }
 
     fn get_control_needed(&self) -> f64 {
-        self.energy + self.get_control_needed_for_shape(self.shape) as f64
+        self.energy + self.get_control_needed_for_shape(self.shape)
     }
 
-    fn get_natural_volume(&self, energy: f32) -> f32 {
+    fn get_natural_volume(&self, energy: f64) -> f64 {
         energy * ENERGY_TO_VOLUME
     }
 
     // get_natural_energy is the inverse function of get_natural_volume
-    fn get_natural_energy(&self, volume: f32) -> f32 {
+    fn get_natural_energy(&self, volume: f64) -> f64 {
         volume / ENERGY_TO_VOLUME
     }
 }
@@ -986,7 +986,7 @@ impl HasShape for Spell {
                 // Creating sphere shape
                 let mut shape = SphereShape3D::new_gd();
                 shape.set_name(SPELL_SHAPE_NAME.into_godot());
-                shape.set_radius(sphere.radius);
+                shape.set_radius(sphere.radius as f32);
                 collision_shape.set_shape(shape.upcast::<Shape3D>());
 
                 // Creating visual representation of spell in godot
@@ -994,7 +994,7 @@ impl HasShape for Spell {
                 csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
                 csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
                 csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
-                csg_sphere.set_radius(sphere.radius);
+                csg_sphere.set_radius(sphere.radius as f32);
                 csg_sphere.set_material(csg_material);
                 self.base_mut().add_child(csg_sphere.upcast::<Node>());
             },
@@ -1002,7 +1002,7 @@ impl HasShape for Spell {
                 // Creating box shape
                 let mut shape = BoxShape3D::new_gd();
                 shape.set_name(SPELL_SHAPE_NAME.into_godot());
-                let box_size = Vector3 { x: cube.width, y: cube.height, z: cube.length };
+                let box_size = Vector3 { x: cube.width as f32, y: cube.height as f32, z: cube.length as f32 };
                 shape.set_size(box_size);
                 collision_shape.set_shape(shape.upcast::<Shape3D>());
 
