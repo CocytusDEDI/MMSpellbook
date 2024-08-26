@@ -53,7 +53,7 @@ const SPELL_TRANSPARENCY: f32 = 0.9;
 const RADIUS_UPDATE_RATE: usize = 5;
 
 /// A number used in the conversion of energy to volume, if changed effects the size of spells
-const ENERGY_TO_VOLUME: f32 = 0.001;
+const ENERGY_TO_VOLUME: f32 = 0.0005;
 
 /// In the format (rings, radial segments). Determins the detail on the visible sphere of spells.
 const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20);
@@ -939,12 +939,12 @@ impl Spell {
     }
 
     fn get_natural_volume(&self, energy: f32) -> f32 {
-        f32::ln(ENERGY_TO_VOLUME * (energy) + 1.0).powi(2)
+        energy * ENERGY_TO_VOLUME
     }
 
     // get_natural_energy is the inverse function of get_natural_volume
     fn get_natural_energy(&self, volume: f32) -> f32 {
-        (E.powf(volume.sqrt()) - 1.0) / ENERGY_TO_VOLUME
+        volume / ENERGY_TO_VOLUME
     }
 }
 
