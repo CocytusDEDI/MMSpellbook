@@ -1,10 +1,8 @@
-use codes::opcodes::END_OF_SCOPE;
-use codes::opcodes::TRUE;
 use lazy_static::lazy_static;
-use serde_json::{Value, json};
+use serde_json::json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::f32::consts::PI;
+use std::f32::consts::{PI, E};
 
 // Godot imports
 use godot::prelude::*;
@@ -13,7 +11,10 @@ use godot::classes::Area3D;
 use godot::classes::IArea3D;
 use godot::classes::CollisionShape3D;
 use godot::classes::SphereShape3D;
+use godot::classes::BoxShape3D;
 use godot::classes::CsgSphere3D;
+use godot::classes::CsgBox3D;
+use godot::classes::CsgPrimitive3D;
 use godot::classes::Shape3D;
 use godot::classes::StandardMaterial3D;
 use godot::classes::base_material_3d::Transparency;
@@ -32,28 +33,39 @@ use magical_entity::MagicalEntity;
 use codes::componentcodes::*;
 use codes::attributecodes::*;
 use codes::opcodes::*;
+use codes::datatypes::*;
 
-// When a spell has energy below this level it is discarded as being insignificant
+/// When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 0.1;
 
-// Used to control how fast efficiency increases with each cast
+/// Used to control how fast efficiency increases with each cast
 const EFFICIENCY_INCREASE_RATE: f64 = 15.0;
 
-// Used to control how fast energy is lost passively over time. Is a fraction of total spell energy.
+/// Used to control how fast energy is lost passively over time. Is a fraction of total spell energy
 const ENERGY_LOSE_RATE: f64 = 0.05;
 
 const MASS_MOVEMENT_COST: f64 = 0.5;
 
-// Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
+/// Used to determin how Transparent the default spell is. 0 = fully transparent, 1 = opaque
 const SPELL_TRANSPARENCY: f32 = 0.9;
 
+/// The frequency at which the radius of a spell is updated (if the shape isn't set). If the number was five, it would update every five physics frames
 const RADIUS_UPDATE_RATE: usize = 5;
 
-const ENERGY_TO_VOLUME: f32 = 0.01;
+/// A number used in the conversion of energy to volume, if changed effects the size of spells
+const ENERGY_TO_VOLUME: f32 = 0.001;
 
-const VOLUME_TO_RADIUS: f32 = 0.3;
+/// In the format (rings, radial segments). Determins the detail on the visible sphere of spells.
+const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20);
 
-const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20); // In the format (rings, radial segments)
+/// The default colour of spells
+const DEFAULT_COLOR: CustomColor = CustomColor { r: 0.1, g: 0.0, b: 0.9 };
+
+// The names of child nodes of the spell. Can be changed if you wish to use them yourself instead
+const SPELL_COLLISION_SHAPE_NAME: &'static str = "spell_collision_shape";
+const SPELL_SHAPE_NAME: &'static str = "spell_shape";
+const SPELL_CSG_SHAPE_NAME: &'static str = "spell_csg_shape";
+const FORM_NAME: &'static str = "form";
 
 #[derive(Serialize, Deserialize)]
 struct CustomColor {
@@ -68,8 +80,6 @@ impl CustomColor {
     }
 }
 
-const DEFAULT_COLOR: CustomColor = CustomColor { r: 1.0, g: 1.0, b: 1.0 };
-
 #[derive(Deserialize, Serialize, Clone)]
 pub struct ComponentCatalogue {
     pub component_catalogue: HashMap<u64, Vec<Vec<u64>>>
@@ -81,24 +91,19 @@ impl ComponentCatalogue {
     }
 }
 
-struct MyExtension;
-
-#[gdextension]
-unsafe impl ExtensionLibrary for MyExtension {}
-
 enum ReturnType {
     Float,
     Boolean,
     None
 }
 
-const COMPONENT_0_ARGS: &[u64] = &[1, 1, 1];
-const COMPONENT_1_ARGS: &[u64] = &[1];
+const COMPONENT_0_ARGS: &[u64] = &[FLOAT, FLOAT, FLOAT];
+const COMPONENT_1_ARGS: &[u64] = &[FLOAT];
 const COMPONENT_2_ARGS: &[u64] = &[];
+const COMPONENT_7_ARGS: &[u64] = &[FLOAT, FLOAT, FLOAT, FLOAT];
 
 lazy_static! {
     // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
-    // The u64 type conversion goes as follows: 1 = f64, 2 = bool
     static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
         // Utility:
@@ -109,6 +114,8 @@ lazy_static! {
         component_map.insert(ANCHOR, (component_functions::anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
         component_map.insert(UNDO_ANCHOR, (component_functions::undo_anchor as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
         component_map.insert(PERISH, (component_functions::perish as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
+        component_map.insert(TAKE_SHAPE, (component_functions::take_shape as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_7_ARGS, ReturnType::None));
+        component_map.insert(UNDO_SHAPE, (component_functions::undo_shape as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_2_ARGS, ReturnType::None));
 
         // Logic:
         component_map.insert(MOVING, (component_functions::moving as fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, COMPONENT_1_ARGS, ReturnType::Boolean));
@@ -120,6 +127,65 @@ lazy_static! {
         return component_map
     };
 }
+
+#[derive(Clone, Copy, Deserialize)]
+enum Shape {
+    Sphere(Sphere),
+    Cube(Cube)
+}
+
+impl HasVolume for Shape {
+    fn get_volume(&self) -> f32 {
+        match self {
+            Self::Sphere(sphere) => sphere.get_volume(),
+            Self::Cube(cube) => cube.get_volume()
+        }
+    }
+}
+
+#[derive(Clone, Copy, Deserialize)]
+struct Sphere {
+    radius: f32
+}
+
+impl Sphere {
+    fn from_volume(volume: f32) -> Self {
+        Sphere { radius: Sphere::get_radius_from_volume(volume) }
+    }
+
+    fn get_radius_from_volume(volume: f32) -> f32 {
+        ((3.0 * volume) / (4.0 * PI)).powf(1.0 / 3.0)
+    }
+}
+
+impl HasVolume for Sphere {
+    fn get_volume(&self) -> f32 {
+        (4.0 / 3.0) * PI * self.radius.powi(3)
+    }
+}
+
+#[derive(Clone, Copy, Deserialize)]
+struct Cube {
+    length: f32,
+    width: f32,
+    height: f32
+}
+
+impl HasVolume for Cube {
+    fn get_volume(&self) -> f32 {
+        self.length * self.width * self.height
+    }
+}
+
+trait HasVolume {
+    fn get_volume(&self) -> f32;
+}
+
+trait HasShape {
+    fn set_shape(&mut self, shape: Shape);
+    fn set_visibility(&mut self, visible: bool);
+}
+
 
 /// A process is a set of instructions used in the method `physics_process`. A process keeps track of when it should run using a counter.
 struct Process {
@@ -142,6 +208,11 @@ impl Process {
     }
 }
 
+struct MyExtension;
+
+#[gdextension]
+unsafe impl ExtensionLibrary for MyExtension {}
+
 #[derive(GodotClass)]
 #[class(base=Area3D)]
 struct Spell {
@@ -150,6 +221,8 @@ struct Spell {
     energy: f64,
     #[export]
     color: Color,
+    shape: Option<Shape>,
+    charge_to_shape: bool,
     counter: usize,
     #[export]
     energy_lose_rate: f64,
@@ -178,6 +251,8 @@ impl IArea3D for Spell {
             base,
             energy: 0.0,
             color: DEFAULT_COLOR.into_spell_color(),
+            shape: None,
+            charge_to_shape: true,
             counter: 0,
             energy_lose_rate: ENERGY_LOSE_RATE,
             config: Config::get_config().unwrap_or_else(|error| {
@@ -224,31 +299,7 @@ impl IArea3D for Spell {
             None => Basis::default()
         };
 
-        // Creating visual representation of spell in godot
-        let mut collision_shape = CollisionShape3D::new_alloc();
-        collision_shape.set_name("spell_collision_shape".into_godot());
-        let mut shape = SphereShape3D::new_gd();
-        shape.set_name("spell_sphere_shape".into_godot());
-        let radius = self.get_radius();
-        shape.set_radius(radius);
-        collision_shape.set_shape(shape.upcast::<Shape3D>());
-        self.base_mut().add_child(collision_shape.upcast::<Node>());
-        let mut csg_sphere = CsgSphere3D::new_alloc();
-        csg_sphere.set_name("spell_csg_sphere".into_godot());
-        csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
-        csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
-        csg_sphere.set_radius(radius);
-        let mut csg_material = StandardMaterial3D::new_gd();
-
-        // Player defined material properties
-        csg_material.set_albedo(self.color);
-
-        // Constant material properties
-        csg_material.set_transparency(Transparency::ALPHA); // Transparency type
-        csg_material.set_feature(Feature::EMISSION, true); // Allows spell to emit light
-        csg_material.set_emission(self.color); // Chooses what light to emit
-        csg_sphere.set_material(csg_material);
-        self.base_mut().add_child(csg_sphere.upcast::<Node>());
+        self.update_natural_shape();
 
         // Execute the spell and get the result
         let spell_result = {
@@ -291,7 +342,7 @@ impl IArea3D for Spell {
             return
         }
 
-        // handle instructions
+        // Handle instructions
         let mut instructions = std::mem::take(&mut self.process_instructions);
         for process in instructions.iter_mut() {
             // Handle instructions, frees the spell if it fails
@@ -354,19 +405,12 @@ impl IArea3D for Spell {
         // Handle energy lose
         self.energy -= self.energy * self.energy_lose_rate * delta;
 
+        // Makes the energy to the spell match the energy needed for the shape
+        self.handle_charge_to_shape();
+
         // Decreases the radius of the sphere if form isn't set
-        if !self.form_set && self.anchored_to == None && self.counter == 0 {
-            // Radius changing of collision shape
-            let radius = self.get_radius();
-
-            let collsion_shape = self.base_mut().get_node_as::<CollisionShape3D>("spell_collision_shape");
-            let shape = collsion_shape.get_shape().unwrap();
-            let mut sphere = shape.cast::<SphereShape3D>();
-            sphere.set_radius(radius);
-
-            // Changing radius of csg sphere
-            let mut csg_sphere = self.base_mut().get_node_as::<CsgSphere3D>("spell_csg_sphere");
-            csg_sphere.set_radius(radius);
+        if self.shape.is_none() && self.anchored_to.is_none() && self.counter == 0 {
+            self.update_natural_shape();
         }
 
         self.counter = (self.counter + 1) % RADIUS_UPDATE_RATE;
@@ -502,76 +546,6 @@ impl Spell {
         return self.call_component(component_code, parameters)
     }
 
-    fn perish(&mut self) {
-        self.base_mut().queue_free();
-    }
-
-    fn anchor(&mut self) {
-        let parent = match self.base().get_parent() {
-            Some(node) => node.cast::<MagicalEntity>(),
-            None => panic!("Expected parent node")
-        };
-        let distance = (self.base().get_global_position() - parent.get_global_position()).length();
-        if self.get_radius() >= distance {
-            self.base_mut().set_position(parent.get_global_position());
-            self.anchored_to = Some(parent);
-            self.base_mut().set_as_top_level(false);
-            self.set_csg_sphere_visibility(false);
-        }
-    }
-
-    fn undo_anchor(&mut self) {
-        self.base_mut().set_as_top_level(true);
-        let position = self.base().get_global_position();
-        match self.anchored_to {
-            Some(ref mut magical_entity) => magical_entity.set_position(position),
-            None => return
-        }
-        self.anchored_to = None;
-        if !self.form_set {
-            self.set_csg_sphere_visibility(true);
-        }
-    }
-
-    fn surmount_anchor_resistance(&mut self) -> bool {
-        let mut spell_owned = false;
-
-        let magical_entity_option = std::mem::take(&mut self.anchored_to);
-
-        if let Some(ref magical_entity) = magical_entity_option {
-            let bind_magical_entity = magical_entity.bind();
-            spell_owned = bind_magical_entity.owns_spell(self.to_gd())
-        }
-
-        self.anchored_to = magical_entity_option;
-
-        if let Some(ref mut magical_entity) = self.anchored_to {
-            let mut bind_magical_entity = magical_entity.bind_mut();
-
-            // Surmounting magical entity's charged energy
-            if !spell_owned {
-                let energy_charged = bind_magical_entity.get_energy_charged();
-                if self.energy >= energy_charged {
-                    bind_magical_entity.set_energy_charged(0.0);
-                    self.energy -= energy_charged;
-                } else {
-                    bind_magical_entity.set_energy_charged(energy_charged - self.energy);
-                    self.energy = 0.0;
-                    return false
-                }
-            }
-
-            // Surmounting magical entity's mass
-            self.energy -= bind_magical_entity.get_mass() * MASS_MOVEMENT_COST;
-
-            if !(self.energy > 0.0) {
-                return false
-            }
-        }
-
-        return true
-    }
-
     fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Vec<u64>, &'static str> {
         // Removes number literal opcodes
         let mut compressed_parameters: Vec<u64> = Vec::new();
@@ -625,52 +599,12 @@ impl Spell {
         self.base_mut().emit_signal("component_cast".into(), &[Variant::from(component_code), Variant::from(efficiency_increase)]);
     }
 
-    fn get_radius(&self) -> f32 {
-        ((3.0 * self.get_volume()) / (4.0 * PI)).powf(1.0 / 3.0) * VOLUME_TO_RADIUS
-    }
-
-    fn get_volume(&self) -> f32 {
-        f32::ln(ENERGY_TO_VOLUME * (self.energy as f32) + 1.0).powi(2)
-    }
-
     fn get_number_of_component_parameters(component_code: &u64) -> usize {
         if let Some((_, number_of_parameters, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
             return number_of_parameters.len()
         } else {
             panic!("Component doesn't exist")
         }
-    }
-
-    fn set_form(&mut self, form_code: u64) {
-        if self.form_set {
-            self.undo_form();
-        }
-        let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
-
-        let scene: Gd<PackedScene> = load(&form_config.path);
-
-        self.form_set = true;
-        self.set_csg_sphere_visibility(false);
-        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
-        instantiated_scene.set_name("form".into_godot());
-        self.base_mut().add_child(instantiated_scene);
-    }
-
-    fn undo_form(&mut self) {
-        if self.form_set == false {
-            return
-        }
-        self.form_set = false;
-        let form: Gd<Node> = self.base_mut().get_node_as("form".into_godot());
-        form.free();
-        if self.anchored_to == None {
-            self.set_csg_sphere_visibility(true);
-        }
-    }
-
-    fn set_csg_sphere_visibility(&mut self, visible: bool) {
-        let mut csg_sphere: Gd<CsgSphere3D> = self.base_mut().get_node_as("spell_csg_sphere".into_godot());
-        csg_sphere.set_visible(visible);
     }
 
     fn check_if_parameter_allowed(parameter: &Vec<u64>, allowed_values: &Vec<u64>) -> Result<(), &'static str> {
@@ -740,13 +674,13 @@ impl Spell {
         let mut instructions_iter = instructions.iter();
         let mut section: Option<u64> = None;
         while let Some(&bits) = instructions_iter.next() {
-            if section.is_some_and(|x| x == METADATA_SECTION) && !(READY_SECTION..=599).contains(&bits)  { // ignore all checks in metadata section
+            if section.is_some_and(|x| x == ABOUT_SECTION) && !(WHEN_CREATED_SECTION..=ABOUT_SECTION).contains(&bits)  {
                 continue;
             }
             match bits {
                 NUMBER_LITERAL => _ = instructions_iter.next(),
                 COMPONENT => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter, &component_catalogue)?,
-                READY_SECTION..=METADATA_SECTION => {
+                WHEN_CREATED_SECTION..=ABOUT_SECTION => {
                     section = Some(bits)
                 },
                 _ => {}
@@ -800,16 +734,16 @@ impl Spell {
                     let something = *instructions_iter.next().expect("Expected number after literal opcode");
                     section_instructions.push(something);
                 },
-                READY_SECTION..=METADATA_SECTION => { // Section opcodes
+                WHEN_CREATED_SECTION..=ABOUT_SECTION => {
                     match last_section {
                         END_OF_SCOPE => {},
-                        READY_SECTION => self.ready_instructions = section_instructions.clone(),
-                        PROCESS_SECTION => {
-                            section_instructions.remove(0);
+                        WHEN_CREATED_SECTION => self.ready_instructions = section_instructions.clone(),
+                        REPEAT_SECTION => {
+                            section_instructions.remove(0); // Removes the number literal opcode
                             self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
                         },
-                        METADATA_SECTION => {
-                            self.set_meta_data(section_instructions.clone())
+                        ABOUT_SECTION => {
+                            self.set_about_section(section_instructions.clone())
                         },
                         _ => panic!("Invalid section")
                     }
@@ -821,22 +755,22 @@ impl Spell {
             }
         }
 
-        // match the end section
+        // Match the finial section
         match last_section {
             END_OF_SCOPE => {},
-            READY_SECTION => self.ready_instructions = section_instructions.clone(),
-            PROCESS_SECTION => {
+            WHEN_CREATED_SECTION => self.ready_instructions = section_instructions.clone(),
+            REPEAT_SECTION => {
                 section_instructions.remove(0);
                 self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
             },
-            METADATA_SECTION => {
-                self.set_meta_data(section_instructions.clone())
+            ABOUT_SECTION => {
+                self.set_about_section(section_instructions.clone())
             },
             _ => panic!("Invalid section")
         }
     }
 
-    fn set_meta_data(&mut self, attributes: Vec<u64>) {
+    fn set_about_section(&mut self, attributes: Vec<u64>) {
         let mut codes = attributes.into_iter();
         while let Some(code) = codes.next() {
             match code {
@@ -850,7 +784,10 @@ impl Spell {
                         [red, green, blue] => self.color = Color{r: red, g: green, b: blue, a: SPELL_TRANSPARENCY},
                         _ => panic!("Failed to parse colors")
                     }
-                },
+                }
+                CHARGE_TO_SHAPE => {
+                    self.charge_to_shape = boolean_logic::num_to_bool(codes.next().expect("Expected boolean after charge_to_shape")).unwrap_or_else(|err| panic!("{err}"));
+                }
                 _ => panic!("Invalid attribute")
             }
         }
@@ -863,6 +800,229 @@ impl Spell {
 
     fn internal_set_efficiency_levels(&mut self, efficiency_levels: HashMap<u64, f64>) {
         self.component_efficiency_levels = efficiency_levels;
+    }
+
+    fn perish(&mut self) {
+        self.base_mut().queue_free();
+    }
+
+    fn anchor(&mut self) {
+        let parent = match self.base().get_parent() {
+            Some(node) => node.cast::<MagicalEntity>(),
+            None => panic!("Expected parent node")
+        };
+        let distance = (self.base().get_global_position() - parent.get_global_position()).length();
+        if Sphere::get_radius_from_volume(self.get_natural_volume(self.energy as f32)) >= distance {
+            self.base_mut().set_position(parent.get_global_position());
+            self.anchored_to = Some(parent);
+            self.base_mut().set_as_top_level(false);
+            self.set_visibility(false);
+        }
+    }
+
+    fn undo_anchor(&mut self) {
+        self.base_mut().set_as_top_level(true);
+        let position = self.base().get_global_position();
+        match self.anchored_to {
+            Some(ref mut magical_entity) => magical_entity.set_position(position),
+            None => return
+        }
+        self.anchored_to = None;
+        if !self.form_set {
+            self.set_visibility(true);
+        }
+    }
+
+    fn surmount_anchor_resistance(&mut self) -> bool {
+        let mut spell_owned = false;
+
+        let magical_entity_option = std::mem::take(&mut self.anchored_to);
+
+        if let Some(ref magical_entity) = magical_entity_option {
+            let bind_magical_entity = magical_entity.bind();
+            spell_owned = bind_magical_entity.owns_spell(self.to_gd())
+        }
+
+        self.anchored_to = magical_entity_option;
+
+        if let Some(ref mut magical_entity) = self.anchored_to {
+            let mut bind_magical_entity = magical_entity.bind_mut();
+
+            // Surmounting magical entity's charged energy
+            if !spell_owned {
+                let energy_charged = bind_magical_entity.get_energy_charged();
+                if self.energy >= energy_charged {
+                    bind_magical_entity.set_energy_charged(0.0);
+                    self.energy -= energy_charged;
+                } else {
+                    bind_magical_entity.set_energy_charged(energy_charged - self.energy);
+                    self.energy = 0.0;
+                    return false
+                }
+            }
+
+            // Surmounting magical entity's mass
+            self.energy -= bind_magical_entity.get_mass() * MASS_MOVEMENT_COST;
+
+            if !(self.energy > 0.0) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    fn set_form(&mut self, form_code: u64) {
+        if self.form_set {
+            self.undo_form();
+        }
+        let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
+
+        let scene: Gd<PackedScene> = load(&form_config.path);
+
+        let shape = form_config.shape;
+
+        self.form_set = true;
+        self.shape = Some(shape);
+        self.set_shape(shape);
+        self.set_visibility(false);
+        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene");
+        instantiated_scene.set_name(FORM_NAME.into_godot());
+        self.base_mut().add_child(instantiated_scene);
+    }
+
+    fn undo_form(&mut self) {
+        if self.form_set == false {
+            return
+        }
+        self.form_set = false;
+        let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME.into_godot());
+        form.free();
+        self.shape = None;
+        self.update_natural_shape();
+        if self.anchored_to == None {
+            self.set_visibility(true);
+        }
+    }
+
+    fn handle_charge_to_shape(&mut self) {
+        if self.charge_to_shape {
+            match self.shape {
+                Some(ref shape) => {
+                    let energy_needed = self.get_natural_energy(shape.get_volume()) as f64;
+                    if energy_needed > self.energy {
+                        self.energy_requested = energy_needed - self.energy;
+                    } else {
+                        self.energy = energy_needed;
+                    }
+                },
+                None => {}
+            }
+        }
+    }
+
+    fn update_natural_shape(&mut self) {
+        self.set_shape(Shape::Sphere(Sphere::from_volume(self.get_natural_volume(self.energy as f32))));
+    }
+
+    fn get_control_needed_for_shape(&self, shape_option: Option<Shape>) -> f32 {
+        let shape = match shape_option {
+            Some(ref shape) => shape,
+            None => return 0.0
+        };
+        let volume_multiplier = shape.get_volume() / self.get_natural_volume(self.energy as f32);
+        (E.powf(volume_multiplier - 1.0) + E.powf((1.0 / volume_multiplier) - 1.0) - 2.0) * self.energy as f32
+    }
+
+    fn get_control_needed(&self) -> f64 {
+        self.energy + self.get_control_needed_for_shape(self.shape) as f64
+    }
+
+    fn get_natural_volume(&self, energy: f32) -> f32 {
+        f32::ln(ENERGY_TO_VOLUME * (energy) + 1.0).powi(2)
+    }
+
+    // get_natural_energy is the inverse function of get_natural_volume
+    fn get_natural_energy(&self, volume: f32) -> f32 {
+        (E.powf(volume.sqrt()) - 1.0) / ENERGY_TO_VOLUME
+    }
+}
+
+impl HasShape for Spell {
+    fn set_shape(&mut self, shape: Shape) {
+        // Collision shape
+        let mut collision_shape_exists = false;
+
+        let mut collision_shape = match self.base().try_get_node_as::<CollisionShape3D>(SPELL_COLLISION_SHAPE_NAME) {
+            Some(collision_shape) => {
+                collision_shape_exists = true;
+                collision_shape
+            },
+            None => {
+                let mut collision_shape = CollisionShape3D::new_alloc();
+                collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into_godot());
+                collision_shape
+            }
+        };
+
+        match self.base().try_get_node_as::<CsgPrimitive3D>(SPELL_CSG_SHAPE_NAME) {
+            Some(csg) => csg.free(),
+            None => {}
+        };
+
+        // Material
+        let mut csg_material = StandardMaterial3D::new_gd();
+
+        // Player defined material properties
+        csg_material.set_albedo(self.color);
+
+        // Constant material properties
+        csg_material.set_transparency(Transparency::ALPHA); // Transparency type
+        csg_material.set_feature(Feature::EMISSION, true); // Allows spell to emit light
+        csg_material.set_emission(self.color); // Chooses what light to emit
+
+        match shape {
+            Shape::Sphere(sphere) => {
+                // Creating sphere shape
+                let mut shape = SphereShape3D::new_gd();
+                shape.set_name(SPELL_SHAPE_NAME.into_godot());
+                shape.set_radius(sphere.radius);
+                collision_shape.set_shape(shape.upcast::<Shape3D>());
+
+                // Creating visual representation of spell in godot
+                let mut csg_sphere = CsgSphere3D::new_alloc();
+                csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
+                csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
+                csg_sphere.set_radius(sphere.radius);
+                csg_sphere.set_material(csg_material);
+                self.base_mut().add_child(csg_sphere.upcast::<Node>());
+            },
+            Shape::Cube(cube) => {
+                // Creating box shape
+                let mut shape = BoxShape3D::new_gd();
+                shape.set_name(SPELL_SHAPE_NAME.into_godot());
+                let box_size = Vector3 { x: cube.width, y: cube.height, z: cube.length };
+                shape.set_size(box_size);
+                collision_shape.set_shape(shape.upcast::<Shape3D>());
+
+                // Creating visual representation of spell in godot
+                let mut csg_box = CsgBox3D::new_alloc();
+                csg_box.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_box.set_size(box_size);
+                csg_box.set_material(csg_material);
+                self.base_mut().add_child(csg_box.upcast::<Node>());
+            }
+        };
+
+        if !collision_shape_exists {
+            self.base_mut().add_child(collision_shape.upcast::<Node>());
+        }
+    }
+
+    fn set_visibility(&mut self, visible: bool) {
+        let mut csg: Gd<CsgPrimitive3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
+        csg.set_visible(visible);
     }
 }
 
@@ -909,7 +1069,7 @@ impl Spell {
         let json_string = efficiency_levels_bytecode_json.to_string();
 
         match serde_json::from_str(&json_string) {
-            Ok(Value::Object(efficiency_levels_object)) => {
+            Ok(serde_json::Value::Object(efficiency_levels_object)) => {
                 let mut temp_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiency_levels_object {
                     if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u64>(), value.as_f64()) {
@@ -928,14 +1088,14 @@ impl Spell {
         let json_string = efficiency_levels_json.to_string();
 
         match serde_json::from_str(&json_string) {
-            Ok(Value::Object(efficiency_levels_object)) => {
+            Ok(serde_json::Value::Object(efficiency_levels_object)) => {
                 let mut return_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiency_levels_object {
                     if let (Some(parsed_key), Some(parsed_value)) = (get_component_num(&key), value.as_f64()) {
                         return_hashmap.insert(parsed_key, parsed_value);
                     }
                 }
-                let json_object: Value = json!(return_hashmap);
+                let json_object: serde_json::Value = json!(return_hashmap);
                 GString::from(json_object.to_string())
             },
             Ok(_) => panic!("Invalid: Must be dictionary"),
@@ -1019,6 +1179,21 @@ mod boolean_logic { // 100 = true, 101 = false
             TRUE => Ok(FALSE),
             FALSE => Ok(TRUE),
             _ => Err("Not can only be used on booleans")
+        }
+    }
+
+    pub fn bool_to_num(boolean: bool) -> u64 {
+        match boolean {
+            true => TRUE,
+            false => FALSE
+        }
+    }
+
+    pub fn num_to_bool(num: u64) -> Result<bool, &'static str> {
+        match num {
+            TRUE => Ok(true),
+            FALSE => Ok(false),
+            _ => Err("Invalid number: Cannot translate to boolean")
         }
     }
 }

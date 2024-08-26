@@ -10,7 +10,7 @@ use toml;
 
 use godot::prelude::*;
 
-use crate::CustomColor;
+use crate::{CustomColor, Shape};
 
 const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
 const SPELL_SAVE_FOLDER: &'static str = "SpellSave";
@@ -34,7 +34,8 @@ struct StringConfig {
 #[derive(Deserialize, Clone)]
 pub struct FormConfig {
     pub path: String,
-    pub energy_required: f64
+    pub energy_required: f64,
+    pub shape: Shape
 }
 
 pub mod godot_json_saver {
