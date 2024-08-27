@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
+use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*, component_specific_codes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
 
 const NAME_SIZE: usize = 25;
 
@@ -45,14 +45,32 @@ struct List {
 }
 
 lazy_static! {
-    /// Maps attribute name to (attribute_code, datatype, size)
-    static ref ATTRIBUTES_MAP: HashMap<[Option<char>; NAME_SIZE], (u64, Datatype)> = {
+    /// Maps attribute name to (attribute_code, datatype)
+    static ref ATTRIBUTE_MAP: HashMap<[Option<char>; NAME_SIZE], (u64, Datatype)> = {
         let mut attribute_map = HashMap::new();
 
         attribute_map.insert(pad_name("color"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
         attribute_map.insert(pad_name("colour"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
         attribute_map.insert(pad_name("charge_to_shape"), (CHARGE_TO_SHAPE, Datatype::Boolean));
         attribute_map
+    };
+}
+
+lazy_static! {
+    /// Maps a component_code to a map that maps strings to values (and by strings I actually mean arrays of characters)
+    static ref STRING_MAP: HashMap<u64, HashMap<[Option<char>; NAME_SIZE], u64>> = {
+        let mut string_map = HashMap::new();
+
+        string_map.insert(TAKE_SHAPE, {
+            let mut string_map = HashMap::new();
+
+            string_map.insert(pad_name("sphere"), SPHERE);
+            string_map.insert(pad_name("cube"), CUBE);
+
+            string_map
+        });
+
+        string_map
     };
 }
 
@@ -69,7 +87,7 @@ pub fn get_component_num(component_name: &str) -> Option<u64> {
 }
 
 fn get_attribute_info(attribute_name: &str) -> Option<&(u64, Datatype)> {
-    ATTRIBUTES_MAP.get(&pad_name(attribute_name))
+    ATTRIBUTE_MAP.get(&pad_name(attribute_name))
 }
 
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {

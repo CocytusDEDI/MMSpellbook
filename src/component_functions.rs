@@ -1,6 +1,6 @@
 use godot::prelude::*;
 
-use crate::{Spell, codes::opcodes::*, codes::shapecodes::*, Shape, Sphere, Cube, HasShape};
+use crate::{Spell, codes::opcodes::*, codes::component_specific_codes::*, Shape, Sphere, Cube, HasShape};
 
 const APPLY_TO_SPELL_COEFFICIENT: f64 = 70.0;
 
