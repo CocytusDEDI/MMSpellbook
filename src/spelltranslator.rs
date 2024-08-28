@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
+use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*, component_specific_codes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
 
 const NAME_SIZE: usize = 25;
 
@@ -45,14 +45,32 @@ struct List {
 }
 
 lazy_static! {
-    /// Maps attribute name to (attribute_code, datatype, size)
-    static ref ATTRIBUTES_MAP: HashMap<[Option<char>; NAME_SIZE], (u64, Datatype)> = {
+    /// Maps attribute name to (attribute_code, datatype)
+    static ref ATTRIBUTE_MAP: HashMap<[Option<char>; NAME_SIZE], (u64, Datatype)> = {
         let mut attribute_map = HashMap::new();
 
         attribute_map.insert(pad_name("color"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
         attribute_map.insert(pad_name("colour"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
         attribute_map.insert(pad_name("charge_to_shape"), (CHARGE_TO_SHAPE, Datatype::Boolean));
         attribute_map
+    };
+}
+
+lazy_static! {
+    /// Maps a component_code to a map that maps strings to values (and by strings I actually mean arrays of characters)
+    static ref STRING_MAP: HashMap<u64, HashMap<[Option<char>; NAME_SIZE], u64>> = {
+        let mut string_map = HashMap::new();
+
+        string_map.insert(TAKE_SHAPE, {
+            let mut string_map = HashMap::new();
+
+            string_map.insert(pad_name("sphere"), SPHERE);
+            string_map.insert(pad_name("cube"), CUBE);
+
+            string_map
+        });
+
+        string_map
     };
 }
 
@@ -69,7 +87,11 @@ pub fn get_component_num(component_name: &str) -> Option<u64> {
 }
 
 fn get_attribute_info(attribute_name: &str) -> Option<&(u64, Datatype)> {
-    ATTRIBUTES_MAP.get(&pad_name(attribute_name))
+    ATTRIBUTE_MAP.get(&pad_name(attribute_name))
+}
+
+fn get_string_translation(component_num: u64, string: &str) -> Option<u64> {
+    STRING_MAP.get(&component_num)?.get(&pad_name(string)).cloned()
 }
 
 pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
@@ -496,7 +518,7 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
 }
 
 fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
-    let mut component_vec: Vec<u64> = vec![103];
+    let mut component_vec: Vec<u64> = vec![COMPONENT];
     let (component_name, parameters) = parse_component_string(component_call)?;
     let component_num = match get_component_num(&component_name) {
         Some(num) => num,
@@ -571,7 +593,9 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
 
     let mut index = 0;
 
-    if let Some((_, encoded_types, _)) = COMPONENT_TO_FUNCTION_MAP.get(&get_component_num(component_name).ok_or("Component doesn't exist")?) {
+    let component_num = get_component_num(component_name).ok_or("Component doesn't exist")?;
+
+    if let Some((_, encoded_types, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_num) {
         let encoded_types: &[u64] = encoded_types;
         for character in parameters_string.chars() {
             if character != ',' {
@@ -584,16 +608,15 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
             }
 
             if index >= encoded_types.len() {
-                return Err("Invalid parameters: More parameters than expected types");
+                return Err("Invalid parameters: More parameters than expected");
             }
 
             // Adding parameter to parameters vector
-            parameters.push(parse_parameter(&parameter, encoded_types[index])?);
+            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num)?);
             index += 1;
 
             // Clear parameter string so next one can be recorded
             parameter.clear();
-
         }
 
         // Adding last parameter
@@ -601,7 +624,7 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
             if index >= encoded_types.len() {
                 return Err("Invalid parameters: More parameters than expected");
             }
-            parameters.push(parse_parameter(&parameter, encoded_types[index])?);
+            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num)?);
         }
 
         if parameters.len() < encoded_types.len() {
@@ -617,18 +640,25 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
     return Ok(parameters)
 }
 
-fn parse_parameter(parameter_string: &str, parameter_type: u64) -> Result<Parameter, &'static str> {
+fn parse_parameter(parameter_string: &str, parameter_type: u64, component_num: u64) -> Result<Parameter, &'static str> {
     let trimmed_parameter_string = parameter_string.trim();
 
     // Check if component
-    if trimmed_parameter_string.ends_with(")") {
+    if trimmed_parameter_string.ends_with(')') {
         return Ok(Parameter::Component(trimmed_parameter_string.to_string()))
+    }
+
+    if parameter_type == FLOAT && trimmed_parameter_string.starts_with('"') && trimmed_parameter_string.ends_with('"') {
+        return Ok(Parameter::Float(get_string_translation(component_num, trimmed_parameter_string
+            .strip_prefix('"').unwrap()
+            .strip_suffix('"').unwrap())
+            .ok_or("Couldn't parse parameter: string option doesn't exist")? as f64))
     }
 
     match parameter_type {
         FLOAT => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().map_err(|_| "Couldn't parse parameter: should be float")?)),
         BOOLEAN => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().map_err(|_| "Couldn't parse parameter: should be boolean")?)),
-        _ => Err("Invalid parameters: parameter doesn't match expected type")
+        _ => panic!("Parameter type given doesn't exist")
     }
 }
 
