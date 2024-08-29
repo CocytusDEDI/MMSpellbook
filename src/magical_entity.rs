@@ -68,7 +68,9 @@ pub struct MagicalEntity {
     #[export]
     max_power: f64,
     charge_to: f64,
-    component_efficiency_levels: HashMap<u64, f64>
+    component_efficiency_levels: HashMap<u64, f64>,
+    horizontal_direction_parent: Option<Gd<Node3D>>,
+    vertical_direction_parent: Option<Gd<Node3D>>
 }
 
 #[godot_api]
@@ -91,7 +93,9 @@ impl ICharacterBody3D for MagicalEntity {
             max_control: 100.0,
             max_power: 10.0,
             charge_to: 0.0,
-            component_efficiency_levels: HashMap::new()
+            component_efficiency_levels: HashMap::new(),
+            horizontal_direction_parent: None,
+            vertical_direction_parent: None
         }
     }
 }
@@ -112,10 +116,34 @@ impl MagicalEntity {
         }
         return false
     }
+
+    fn get_original_direction(&self) -> Basis {
+        let horizontal_direction = match self.horizontal_direction_parent {
+            Some(ref parent) => parent.get_basis(),
+            None => Basis::default()
+        };
+
+        let vertical_direction = match self.vertical_direction_parent {
+            Some(ref parent) => parent.get_basis(),
+            None => Basis::default()
+        };
+
+        horizontal_direction * vertical_direction
+    }
 }
 
 #[godot_api]
 impl MagicalEntity {
+    #[func]
+    fn set_horizontal_direction_parent(&mut self, parent: Gd<Node3D>) {
+        self.horizontal_direction_parent = Some(parent)
+    }
+
+    #[func]
+    fn set_vertical_direction_parent(&mut self, parent: Gd<Node3D>) {
+        self.vertical_direction_parent = Some(parent)
+    }
+
     #[func]
     pub fn get_energy_to_kill(&self) -> f64 {
         self.health + self.energy_charged
@@ -317,6 +345,7 @@ impl MagicalEntity {
             spell_bind.connect_player(self.to_gd().upcast());
             spell_bind.internal_set_efficiency_levels(self.component_efficiency_levels.clone());
             spell_bind.internal_set_instructions(self.loaded_spell.clone());
+            spell_bind.set_original_direction(self.get_original_direction());
         }
 
         spell.set_position(self.base().get_global_position());

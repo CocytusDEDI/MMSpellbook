@@ -290,15 +290,6 @@ impl IArea3D for Spell {
             self.perish();
         }
 
-        // Get direction to move in
-        self.original_direction = match self.base().get_parent() {
-            Some(parent) => match parent.try_cast::<Node3D>() {
-                Ok(node3d) => node3d.get_transform().basis,
-                Err(_) => Basis::default()
-            },
-            None => Basis::default()
-        };
-
         self.update_natural_shape();
 
         // Execute the spell and get the result
@@ -1032,6 +1023,16 @@ impl HasShape for Spell {
 
 #[godot_api]
 impl Spell {
+    #[func]
+    fn set_original_direction(&mut self, original_direction: Basis) {
+        self.original_direction = original_direction
+    }
+
+    #[func]
+    fn get_original_direction(&self) -> Basis {
+        self.original_direction
+    }
+
     /// Checks instructions against the component catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered.
     #[func]
     fn check_allowed_to_cast(instructions_json: GString, component_catalogue_path: GString) -> Dictionary {
