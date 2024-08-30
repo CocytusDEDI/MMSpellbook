@@ -56,6 +56,8 @@ pub struct MagicalEntity {
     health: f64,
     #[export]
     max_health: f64,
+    #[export]
+    external_velocity: Vector3,
     loaded_spell: Vec<u64>,
     spells_cast: Vec<Gd<Spell>>,
     #[export]
@@ -85,6 +87,7 @@ impl ICharacterBody3D for MagicalEntity {
             mass: 0.0,
             health: 0.0,
             max_health: 0.0,
+            external_velocity: Vector3::ZERO,
             loaded_spell: Vec::new(),
             spells_cast: Vec::new(),
             energy_charged: 0.0,
@@ -134,6 +137,55 @@ impl MagicalEntity {
 
 #[godot_api]
 impl MagicalEntity {
+    #[func]
+    pub fn give_external_velocity(&mut self, velocity: Vector3) {
+        self.external_velocity += velocity
+    }
+
+    #[func]
+    fn handle_external_and_character_velocity(&mut self, character_velocity: Vector3, gravity: f32, air_resistance: f32, delta: f32) -> Vector3 {
+        let mut character_velocity_copy = character_velocity;
+
+        let downward = gravity * delta;
+        if self.external_velocity.y - downward > 0.0 {
+            self.external_velocity.y -= downward;
+        } else {
+            let downward_remaining = downward - self.external_velocity.y;
+            self.external_velocity.y = 0.0;
+            if self.base().is_on_floor() {
+                character_velocity_copy.y = 0.0;
+            } else {
+                character_velocity_copy.y -= downward_remaining;
+            }
+        }
+
+        fn apply_air_resistance(velocity: f32, air_resistance: f32) -> f32 {
+            if velocity > 0.0 {
+                let new_velocity = velocity - velocity.abs() * air_resistance;
+                if new_velocity < 0.0 {
+                    0.0
+                } else {
+                    new_velocity
+                }
+            } else if velocity < 0.0 {
+                let new_velocity = velocity + velocity.abs() * air_resistance;
+                if new_velocity > 0.0 {
+                    0.0
+                } else {
+                    new_velocity
+                }
+            } else {
+                0.0
+            }
+        }
+
+        self.external_velocity.x = apply_air_resistance(self.external_velocity.x, air_resistance);
+        self.external_velocity.y = apply_air_resistance(self.external_velocity.y, air_resistance);
+        self.external_velocity.z = apply_air_resistance(self.external_velocity.z, air_resistance);
+
+        character_velocity_copy
+    }
+
     #[func]
     fn set_horizontal_direction_parent(&mut self, parent: Gd<Node3D>) {
         self.horizontal_direction_parent = Some(parent)

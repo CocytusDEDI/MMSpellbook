@@ -315,9 +315,9 @@ impl IArea3D for Spell {
     fn physics_process(&mut self, delta: f64) {
         // Handle velocity
         if let Some(ref mut anchored_to) = self.anchored_to {
-            let previous_velocity = anchored_to.get_velocity();
             let direction = (self.original_direction * self.velocity).normalized_or_zero();
-            anchored_to.set_velocity(previous_velocity + direction * self.velocity.length());
+            let mut bound_parent = anchored_to.bind_mut();
+            bound_parent.give_external_velocity(direction * self.velocity.length());
             self.velocity = Vector3::ZERO;
         } else {
             let f32_delta: f32 = delta as f32;
