@@ -1,2 +1,5 @@
 [forms]
 0 = {"path" = "res://Spell/Scenes/wall.tscn", "energy_required" = 2, "shape" = {"Cube" = { x = 2, y = 3, z = 0.1 } } }
+
+[custom_translation]
+"take_form" = { "wall" = 0 }

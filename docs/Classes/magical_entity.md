@@ -3,7 +3,6 @@ Inherits CharacterBody3D
 
 ## Properties (Incomplete list)
 - health: float
-- shield: float
 
 ## Methods (Incomplete list)
 - add_restricted_component(component: String, parameter_restrictions: String)

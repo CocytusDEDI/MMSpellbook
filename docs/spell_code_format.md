@@ -1,4 +1,4 @@
-[comment]: <> (If you can see this text, you're not using a text editor that can interpret markdown (this type of document). If you wish to keep reading regardless, ignore any ` characters you see.)
+[comment]: <> (If you can see this text, you're not using a text editor that can interpret markdown (this type of document))
 
 Spell code is split into three sections: `when_created`, `repeat` (which are the equivalent of `_ready` and `_physics_process` in Godot), and `about` (which sets the attributes of a spell). In the first two sections you can write components and if statements. An example of spell code would be:
 
