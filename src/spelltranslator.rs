@@ -1,12 +1,16 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*, component_specific_codes::*}, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
+use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*, component_specific_codes::*}, saver::StringCustomTranslation, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
+
+use godot::prelude::godot_warn;
 
 const NAME_SIZE: usize = 25;
 
 const WHEN_CREATED_NAME: &'static str = "when_created";
 const REPEAT_NAME: &'static str = "repeat";
 const ABOUT_NAME: &'static str = "about";
+
+type CustomTranslation = HashMap<u64, HashMap<String, u64>>;
 
 lazy_static! {
     static ref COMPONENT_TO_NUM_MAP: HashMap<[Option<char>; NAME_SIZE], u64> = {
@@ -94,7 +98,28 @@ fn get_string_translation(component_num: u64, string: &str) -> Option<u64> {
     STRING_MAP.get(&component_num)?.get(&pad_name(string)).cloned()
 }
 
-pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
+pub fn parse_spell(spell_code: &str, string_custom_translation: Option<StringCustomTranslation>) -> Result<Vec<u64>, &'static str> {
+    let custom_translation: HashMap<u64, HashMap<String, u64>> = match string_custom_translation {
+        Some(translation) => {
+            let mut trans_map: HashMap<u64, HashMap<String, u64>> = HashMap::new();
+
+            for (component_name, translation_map) in translation {
+                let component_num = match get_component_num(&component_name) {
+                    Some(num) => num,
+                    None => {
+                        godot_warn!("Component \"{}\" in custom_translation in config.toml doesn't exist", component_name);
+                        continue
+                    }
+                };
+
+                trans_map.insert(component_num, translation_map);
+            }
+
+            trans_map
+        },
+        None => HashMap::new()
+    };
+
     let mut instructions: Vec<u64> = vec![];
     let mut in_section = None;
     let mut expected_closing_brackets: usize = 0;
@@ -132,10 +157,10 @@ pub fn parse_spell(spell_code: &str) -> Result<Vec<u64>, &'static str> {
             
             // If in section, parse code
             if trimmed_line.ends_with(")") { // Checking to see if component
-                instructions.extend(parse_component(trimmed_line)?);
+                instructions.extend(parse_component(trimmed_line, Some(&custom_translation))?);
             } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
                 instructions.push(IF); // Indicates if statement
-                instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1])?);
+                instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1], Some(&custom_translation))?);
                 instructions.push(END_OF_SCOPE); // Indicates end of scope for logic
                 expected_closing_brackets += 1;
             } else if expected_closing_brackets > 0 && trimmed_line == "}" {
@@ -433,7 +458,7 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
+fn parse_logic(conditions: &str, custom_translation: Option<&CustomTranslation>) -> Result<Vec<u64>, &'static str> {
     // Uses the Shunting Yard Algorithm to turn player written infix code into executeable postfix (RPN) code
     let mut holding_stack: Vec<String> = vec![];
     let mut output: Vec<String> = vec![];
@@ -504,7 +529,7 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
             possible_component => {
                 // Attempt to see if is a component
                 if possible_component.ends_with(')') && !possible_component.starts_with('(') && possible_component.contains('(') {
-                    bit_conditions.extend(parse_component(possible_component)?);
+                    bit_conditions.extend(parse_component(possible_component, custom_translation)?);
                 } else {
                     return Err("Invalid condition")
                 }
@@ -517,21 +542,21 @@ fn parse_logic(conditions: &str) -> Result<Vec<u64>, &'static str> {
     }
 }
 
-fn parse_component(component_call: &str) -> Result<Vec<u64>, &'static str> {
+fn parse_component(component_call: &str, custom_translation: Option<&CustomTranslation>) -> Result<Vec<u64>, &'static str> {
     let mut component_vec: Vec<u64> = vec![COMPONENT];
-    let (component_name, parameters) = parse_component_string(component_call)?;
+    let (component_name, parameters) = parse_component_string(component_call, custom_translation)?;
     let component_num = match get_component_num(&component_name) {
         Some(num) => num,
         None => return Err("Invalid component: mapping doesn't exist")
     };
     component_vec.push(component_num);
     for parameter in parameters {
-        component_vec.extend(parameter.to_bits()?)
+        component_vec.extend(parameter.to_bits(custom_translation)?)
     }
     return Ok(component_vec)
 }
 
-fn parse_component_string(component_call: &str) -> Result<(String, Vec<Parameter>), &'static str> {
+fn parse_component_string(component_call: &str, custom_translation: Option<&CustomTranslation>) -> Result<(String, Vec<Parameter>), &'static str> {
     if component_call.chars().last() != Some(')') {
         return Err("Invalid component: Must end with close bracket");
     }
@@ -561,7 +586,7 @@ fn parse_component_string(component_call: &str) -> Result<(String, Vec<Parameter
 
     // This line gets the parameters as a string and puts it into the variable parameters_string
     if let Some(parameters_string) = component_call.get(character_count + 1..component_call.len() - 1) {
-        let parameters = collect_parameters(parameters_string, &component_name)?;
+        let parameters = collect_parameters(parameters_string, &component_name, custom_translation)?;
         return Ok((component_name, parameters))
     } else {
         return Err("Invalid component: Parameters not valid")
@@ -575,19 +600,19 @@ enum Parameter {
 }
 
 impl Parameter {
-    fn to_bits(&self) -> Result<Vec<u64>, &'static str> {
+    fn to_bits(&self, custom_translation: Option<&CustomTranslation>) -> Result<Vec<u64>, &'static str> {
         match self {
             Parameter::Float(float) => Ok(vec![NUMBER_LITERAL, float.to_bits()]),
             Parameter::Boolean(boolean) => match boolean {
                 true => Ok(vec![TRUE]),
                 false => Ok(vec![FALSE])
             },
-            Parameter::Component(component) => parse_component(&component)
+            Parameter::Component(component) => parse_component(&component, custom_translation)
         }
     }
 }
 
-fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<Vec<Parameter>, &'static str> {
+fn collect_parameters(parameters_string: &str, component_name: &str, custom_translation: Option<&CustomTranslation>) -> Result<Vec<Parameter>, &'static str> {
     let mut parameter = String::new();
     let mut parameters: Vec<Parameter> = vec![];
 
@@ -612,7 +637,7 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
             }
 
             // Adding parameter to parameters vector
-            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num)?);
+            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num, custom_translation)?);
             index += 1;
 
             // Clear parameter string so next one can be recorded
@@ -624,7 +649,7 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
             if index >= encoded_types.len() {
                 return Err("Invalid parameters: More parameters than expected");
             }
-            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num)?);
+            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num, custom_translation)?);
         }
 
         if parameters.len() < encoded_types.len() {
@@ -640,7 +665,7 @@ fn collect_parameters(parameters_string: &str, component_name: &str) -> Result<V
     return Ok(parameters)
 }
 
-fn parse_parameter(parameter_string: &str, parameter_type: u64, component_num: u64) -> Result<Parameter, &'static str> {
+fn parse_parameter(parameter_string: &str, parameter_type: u64, component_num: u64, custom_translation: Option<&CustomTranslation>) -> Result<Parameter, &'static str> {
     let trimmed_parameter_string = parameter_string.trim();
 
     // Check if component
@@ -649,10 +674,21 @@ fn parse_parameter(parameter_string: &str, parameter_type: u64, component_num: u
     }
 
     if parameter_type == FLOAT && trimmed_parameter_string.starts_with('"') && trimmed_parameter_string.ends_with('"') {
-        return Ok(Parameter::Float(get_string_translation(component_num, trimmed_parameter_string
-            .strip_prefix('"').unwrap()
-            .strip_suffix('"').unwrap())
-            .ok_or("Couldn't parse parameter: string option doesn't exist")? as f64))
+        let string = trimmed_parameter_string.strip_prefix('"').unwrap().strip_suffix('"').unwrap();
+        let float = match get_string_translation(component_num, string) {
+            Some(translation) => translation as f64,
+            None => {
+                let some_custom_translation = match custom_translation {
+                    Some(translation) => translation,
+                    None => return Err("Couldn't parse parameter: string isn't a valid option")
+                };
+
+                *some_custom_translation.get(&component_num).ok_or("Couldn't parse parameter: string isn't a valid option")?
+                    .get(string).ok_or("Couldn't parse parameter: string isn't a valid option")? as f64
+            }
+        };
+
+        return Ok(Parameter::Float(float))
     }
 
     match parameter_type {
@@ -713,32 +749,32 @@ mod tests {
 
     #[test]
     fn parse_emtpy_spell() {
-        assert_eq!(parse_spell(""), Ok(vec![]));
+        assert_eq!(parse_spell("", None), Ok(vec![]));
     }
 
     #[test]
     fn parse_basic_booleans() {
-        assert_eq!(parse_logic("true and false or true"), Ok(vec![TRUE, FALSE, AND, TRUE, OR]));
+        assert_eq!(parse_logic("true and false or true", None), Ok(vec![TRUE, FALSE, AND, TRUE, OR]));
     }
 
     #[test]
     fn parse_basic_spell() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)"), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
+        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)", None), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
     }
 
     #[test]
     fn parse_basic_repeat() {
-        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)"), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(1.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
+        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)", None), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(1.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
     }
 
     #[test]
     fn parse_advanced_repeat() {
-        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)"), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(2.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)", None), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(2.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
     #[test]
     fn parse_advanced_repeat_with_irregular_spacing() {
-        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)"), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(3.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)", None), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(3.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
 
@@ -763,27 +799,27 @@ mod tests {
 
     #[test]
     fn parse_about_section(){
-        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]"), Ok(vec![ABOUT_SECTION, COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]))
+        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]", None), Ok(vec![ABOUT_SECTION, COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]))
     }
 
     #[test]
     fn parse_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
+        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}", None), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
     }
 
     #[test]
     fn parse_advanced_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}"), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, COMPONENT, GET_TIME, NUMBER_LITERAL, f64::to_bits(5.0), GREATER_THAN, OR, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
+        assert_eq!(parse_spell("when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}", None), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, COMPONENT, GET_TIME, NUMBER_LITERAL, f64::to_bits(5.0), GREATER_THAN, OR, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
     }
 
     #[test]
     fn parse_component_as_parameter() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)"), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, COMPONENT, GET_TIME, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)", None), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, COMPONENT, GET_TIME, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
     }
 
     #[test]
     fn parse_complex_spell() {
-        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)"), Ok(vec![ABOUT_SECTION, COLOR,f64::to_bits(1.0),0,f64::to_bits(1.0),WHEN_CREATED_SECTION,COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(1.0),NUMBER_LITERAL,0,NUMBER_LITERAL,0,REPEAT_SECTION,NUMBER_LITERAL,f64::to_bits(5.0),COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(0.1),NUMBER_LITERAL,0,NUMBER_LITERAL,0]))
+        assert_eq!(parse_spell("about:\ncolor = [1, 0, 1]\n\nwhen_created:\ngive_velocity(1, 0, 0)\n\nrepeat every 5:\ngive_velocity(0.1, 0, 0)", None), Ok(vec![ABOUT_SECTION, COLOR,f64::to_bits(1.0),0,f64::to_bits(1.0),WHEN_CREATED_SECTION,COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(1.0),NUMBER_LITERAL,0,NUMBER_LITERAL,0,REPEAT_SECTION,NUMBER_LITERAL,f64::to_bits(5.0),COMPONENT,GIVE_VELOCITY,NUMBER_LITERAL,f64::to_bits(0.1),NUMBER_LITERAL,0,NUMBER_LITERAL,0]))
     }
 
     /// Ensures all components in the COMPONENT_TO_NUM_MAP are in the COMPONENT_TO_FUNCTION_MAP

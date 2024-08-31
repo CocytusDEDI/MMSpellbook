@@ -27,8 +27,7 @@ mod magical_entity;
 mod saver;
 mod codes;
 
-use saver::*;
-use spelltranslator::*;
+use saver::{Config, godot_json_saver};
 use magical_entity::MagicalEntity;
 use codes::componentcodes::*;
 use codes::attributecodes::*;
@@ -81,7 +80,7 @@ impl CustomColor {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
-pub struct ComponentCatalogue {
+struct ComponentCatalogue {
     pub component_catalogue: HashMap<u64, Vec<Vec<u64>>>
 }
 
@@ -208,10 +207,10 @@ impl Process {
     }
 }
 
-struct MyExtension;
+struct MMSpellbook;
 
 #[gdextension]
-unsafe impl ExtensionLibrary for MyExtension {}
+unsafe impl ExtensionLibrary for MMSpellbook {}
 
 #[derive(GodotClass)]
 #[class(base=Area3D)]
@@ -1046,7 +1045,7 @@ impl Spell {
 
     #[func]
     fn add_component(&mut self, component: GString) {
-        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
         let number_of_parameters = Spell::get_number_of_component_parameters(&component_code);
         let mut parameter_restrictions: Vec<Vec<&str>> = Vec::new();
         for _ in 0..number_of_parameters {
@@ -1057,13 +1056,13 @@ impl Spell {
 
     #[func]
     fn remove_component(&mut self, component: GString) {
-        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
         self.component_catalogue.component_catalogue.remove(&component_code);
     }
 
     #[func]
     fn add_restricted_component(&mut self, component: GString, parameter_restrictions: GString) {
-        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
         let string_parameter_restrictions = parameter_restrictions.to_string();
         let parameter_restrictions: Vec<Vec<&str>> = serde_json::from_str(&string_parameter_restrictions).expect("Couldn't parse JSON");
         Spell::add_component_to_component_catalogue(component_code, parameter_restrictions, &mut self.component_catalogue);
@@ -1096,7 +1095,7 @@ impl Spell {
             Ok(serde_json::Value::Object(efficiency_levels_object)) => {
                 let mut return_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiency_levels_object {
-                    if let (Some(parsed_key), Some(parsed_value)) = (get_component_num(&key), value.as_f64()) {
+                    if let (Some(parsed_key), Some(parsed_value)) = (spelltranslator::get_component_num(&key), value.as_f64()) {
                         return_hashmap.insert(parsed_key, parsed_value);
                     }
                 }
@@ -1118,7 +1117,12 @@ impl Spell {
     #[func]
     fn get_bytecode_instructions(instructions_json: GString) -> Dictionary {
         // Returns a dictionary of the instructions and successful
-        let (instructions, successful, error_message) = match parse_spell(&instructions_json.to_string()) {
+        let config = saver::Config::get_config().unwrap_or_else(|err| {
+            godot_warn!("Config.toml couldn't be opened, so custom_translation can't be used: {err}");
+            Config::default()
+        });
+
+        let (instructions, successful, error_message) = match spelltranslator::parse_spell(&instructions_json.to_string(), Some(config.custom_translation)) {
             Ok(succesful_instructions) => (succesful_instructions, true, GString::new()),
             Err(error) => (Vec::new(), false, GString::from(error))
         };

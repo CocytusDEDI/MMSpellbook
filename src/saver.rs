@@ -15,6 +15,8 @@ use crate::{CustomColor, Shape};
 const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
 const SPELL_SAVE_FOLDER: &'static str = "SpellSave";
 
+pub type StringCustomTranslation = HashMap<String, HashMap<String, u64>>;
+
 #[derive(Deserialize, Serialize)]
 pub struct PlayerConfig {
     pub color: CustomColor
@@ -22,13 +24,16 @@ pub struct PlayerConfig {
 
 #[derive(Default)]
 pub struct Config {
-    pub forms: HashMap<u64, FormConfig>
+    pub forms: HashMap<u64, FormConfig>,
+    pub custom_translation: StringCustomTranslation
 }
 
 #[derive(Deserialize)]
 struct StringConfig {
     #[serde(default)]
-    forms: HashMap<String, FormConfig>
+    forms: HashMap<String, FormConfig>,
+    #[serde(default)]
+    custom_translation: StringCustomTranslation
 }
 
 #[derive(Deserialize, Clone)]
@@ -54,11 +59,11 @@ pub mod godot_json_saver {
         Ok(object)
     }
 
-    pub fn save<T>(object: T, path: &str) -> Result<(), &'static str>
+    pub fn save<T>(object: T, local_path: &str) -> Result<(), &'static str>
     where
         T: Serialize
     {
-        let parsed_path = path.trim().strip_prefix('/').unwrap_or(path);
+        let parsed_path = local_path.trim().strip_prefix('/').unwrap_or(local_path);
         let file_path: Vec<&str> = parsed_path.split('/').collect();
 
         let mut json_file = match FileAccess::open(parsed_path.into_godot(), ModeFlags::WRITE) {
@@ -75,23 +80,23 @@ pub mod godot_json_saver {
 }
 
 impl Config {
-    pub fn get_config() -> Result<Config, &'static str> {
+    pub fn get_config() -> Result<Config, String> {
         StringConfig::load_string_config()?.into_config()
     }
 }
 
 impl StringConfig {
     /// Consumes self and converts the `StringConfig` into a normal `Config` wrapped in a result
-    fn into_config(self) -> Result<Config, &'static str> {
-        let mut config = Config {forms: HashMap::new()};
+    fn into_config(self) -> Result<Config, String> {
+        let mut config = Config {forms: HashMap::new(), custom_translation: self.custom_translation};
         for (key, value) in &self.forms {
             config.forms.insert(key.parse().map_err(|_| "Couldn't parse config.toml: Failed to parse form keys into numbers")?, value.clone());
         }
         Ok(config)
     }
 
-    fn load_string_config() -> Result<StringConfig, &'static str> {
+    fn load_string_config() -> Result<StringConfig, String> {
         let config_file = fs::read_to_string(SPELL_CONFIG_PATH).unwrap_or_default();
-        toml::de::from_str(&config_file).map_err(|_| "Couldn't parse config.toml forms section")
+        toml::de::from_str(&config_file).map_err(|err| format!("Couldn't parse config.toml: {}", err.message()))
     }
 }

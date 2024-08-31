@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 
-use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::*, parse_spell, get_component_num, ComponentCatalogue, DEFAULT_COLOR};
+use crate::{Spell, ENERGY_CONSIDERATION_LEVEL, saver::*, ComponentCatalogue, DEFAULT_COLOR, spelltranslator};
 
 // Godot imports
 use godot::prelude::*;
@@ -461,7 +461,7 @@ impl MagicalEntity {
             None => return false
         };
 
-        self.loaded_spell = match parse_spell(spell) {
+        self.loaded_spell = match spelltranslator::parse_spell(spell, None) {
             Ok(instr) => instr,
             Err(_) => return false
         };
@@ -522,7 +522,7 @@ impl MagicalEntity {
 
     #[func]
     fn add_component(&mut self, component: GString) {
-        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
         let number_of_parameters = Spell::get_number_of_component_parameters(&component_code);
         let mut parameter_restrictions: Vec<Vec<&str>> = Vec::new();
         for _ in 0..number_of_parameters {
@@ -533,7 +533,7 @@ impl MagicalEntity {
 
     #[func]
     fn add_restricted_component(&mut self, component: GString, parameter_restrictions: GString) {
-        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
         let string_parameter_restrictions = parameter_restrictions.to_string();
         let parameter_restrictions: Vec<Vec<&str>> = serde_json::from_str(&string_parameter_restrictions).expect("Couldn't parse JSON");
         Spell::add_component_to_component_catalogue(component_code, parameter_restrictions, &mut self.component_catalogue);
@@ -541,7 +541,7 @@ impl MagicalEntity {
 
     #[func]
     fn remove_component(&mut self, component: GString) {
-        let component_code = get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
         self.component_catalogue.component_catalogue.remove(&component_code);
     }
 
