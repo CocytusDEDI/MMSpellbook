@@ -250,18 +250,7 @@ impl MagicalEntity {
 
         // Frees the largest spells until control is possitive
         while control < CONTROL_DIP_ALLOWANCE {
-            if let Some((index, spell)) = self.spells_cast
-                .iter_mut()
-                .enumerate()
-                .max_by(|(_, spell_one), (_, spell_two)| {
-                    spell_one.bind().get_control_needed()
-                    .total_cmp(&spell_two.bind().get_control_needed())
-                }) {
-                    // Free the spell
-                    spell.queue_free();
-                    // Remove the spell from the list of cast spells
-                    self.spells_cast.remove(index);
-            }
+            self.destroy_biggest_spell();
 
             control_for_spells = self.spells_cast.iter()
                 .map(|spell| spell.bind().get_control_needed())
@@ -271,6 +260,22 @@ impl MagicalEntity {
 
         }
         control
+    }
+
+    #[func]
+    fn destroy_biggest_spell(&mut self) {
+        if let Some((index, spell)) = self.spells_cast
+            .iter_mut()
+            .enumerate()
+            .max_by(|(_, spell_one), (_, spell_two)| {
+                spell_one.bind().get_control_needed()
+                .total_cmp(&spell_two.bind().get_control_needed())
+            }) {
+                // Free the spell
+                spell.queue_free();
+                // Remove the spell from the list of cast spells
+                self.spells_cast.remove(index);
+            }
     }
 
     #[func]
