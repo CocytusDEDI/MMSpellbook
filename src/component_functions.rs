@@ -16,7 +16,7 @@ pub fn give_velocity(spell: &mut Spell, parameters: &[u64], should_execute: bool
         return None
     }
 
-    return Some(vec![f64::to_bits((spell.energy / 2.0) * ((x_speed * x_speed + y_speed * y_speed + z_speed * z_speed) as f64) / APPLY_TO_SPELL_COEFFICIENT)]) // E_K = (1/2)mv^2
+    return Some(vec![f64::to_bits(spell.energy * ((x_speed * x_speed + y_speed * y_speed + z_speed * z_speed) as f64).sqrt() / APPLY_TO_SPELL_COEFFICIENT)])
 }
 
 pub fn take_form(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {

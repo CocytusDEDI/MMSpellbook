@@ -185,7 +185,6 @@ trait HasShape {
     fn set_visibility(&mut self, visible: bool);
 }
 
-
 /// A process is a set of instructions used in the method `physics_process`. A process keeps track of when it should run using a counter.
 struct Process {
     counter: usize,
@@ -355,21 +354,33 @@ impl IArea3D for Spell {
 
         // Deal damage
         if self.damage != 0.0 && self.anchored_to == None {
-            let objects = self.base().get_overlapping_bodies();
+            let mut objects = self.base().get_overlapping_bodies();
+
+            for area in self.base().get_overlapping_areas().iter_shared() {
+                objects.push(area.upcast());
+            }
 
             let mut number_of_magical_entities: usize = 0;
 
             for object in objects.iter_shared() {
-                if let Ok(magical_entity_object) = object.try_cast::<MagicalEntity>() {
+                if let Ok(magical_entity_object) = object.clone().try_cast::<MagicalEntity>() {
                     let bind_magical_entity = magical_entity_object.bind();
                     if !bind_magical_entity.owns_spell(self.to_gd()) {
+                        number_of_magical_entities += 1;
+                    }
+                } else if let Ok(spell) = object.clone().try_cast::<Spell>() {
+                    let self_parent = self.to_gd().get_parent();
+                    let spell_parent = spell.get_parent();
+
+                    // If either spell has no parent, or they have different parents, proceed with damage
+                    if self_parent.is_none() || spell_parent.is_none() || self_parent != spell_parent {
                         number_of_magical_entities += 1;
                     }
                 }
             }
 
             for object in objects.iter_shared() {
-                if let Ok(mut magical_entity_object) = object.try_cast::<MagicalEntity>() {
+                if let Ok(mut magical_entity_object) = object.clone().try_cast::<MagicalEntity>() {
                     let mut bind_magical_entity = magical_entity_object.bind_mut();
                     if !bind_magical_entity.owns_spell(self.to_gd()) {
                         // Damage is split among magical_entities
@@ -387,6 +398,28 @@ impl IArea3D for Spell {
                         self.energy -= possible_damage;
 
                         bind_magical_entity.take_damage(possible_damage);
+                    }
+                } else if let Ok(mut spell) = object.clone().try_cast::<Spell>() {
+                    let self_parent = self.to_gd().get_parent();
+                    let spell_parent = spell.get_parent();
+
+                    // If either spell has no parent, or they have different parents, proceed with damage
+                    if self_parent.is_none() || spell_parent.is_none() || self_parent != spell_parent {
+                        let mut spell_bind = spell.bind_mut();
+
+                        let damage = self.damage / number_of_magical_entities as f64;
+
+                        let possible_damage = damage.min(spell_bind.energy);
+
+                        if self.energy - possible_damage < ENERGY_CONSIDERATION_LEVEL {
+                            spell_bind.take_damage(self.energy);
+                            self.perish();
+                            return;
+                        }
+
+                        self.energy -= possible_damage;
+
+                        spell_bind.take_damage(possible_damage);
                     }
                 }
             }
@@ -1022,6 +1055,11 @@ impl HasShape for Spell {
 
 #[godot_api]
 impl Spell {
+    #[func]
+    fn take_damage(&mut self, damage: f64) {
+        self.energy -= damage;
+    }
+
     #[func]
     fn set_original_direction(&mut self, original_direction: Basis) {
         self.original_direction = original_direction

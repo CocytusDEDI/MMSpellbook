@@ -202,11 +202,11 @@ impl MagicalEntity {
     }
 
     #[func]
-    pub fn take_damage(&mut self, energy: f64) {
-        if self.energy_charged - energy > 0.0 {
-            self.energy_charged -= energy;
+    pub fn take_damage(&mut self, damage: f64) {
+        if self.energy_charged - damage > 0.0 {
+            self.energy_charged -= damage;
         } else {
-            let energy_remaining = energy - self.energy_charged;
+            let energy_remaining = damage - self.energy_charged;
             self.energy_charged = 0.0;
             if self.health - energy_remaining > 0.0 {
                 self.health -= energy_remaining;
