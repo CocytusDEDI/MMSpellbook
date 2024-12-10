@@ -451,7 +451,7 @@ impl MagicalEntity {
     fn get_spell_names(&self) -> Array<GString> {
         let mut array = Array::new();
         for spell_name in godot_json_saver::from_path::<SpellCatalogue>(&(format!("{}/spell_catalogue", self.get_save_path_reference()))).unwrap().spell_catalogue.keys() {
-            array.push(spell_name.to_godot());
+            array.push(spell_name);
         }
         return array
     }

@@ -357,7 +357,7 @@ impl IArea3D for Spell {
             let mut objects = self.base().get_overlapping_bodies();
 
             for area in self.base().get_overlapping_areas().iter_shared() {
-                objects.push(area.upcast());
+                objects.push(&area.upcast());
             }
 
             let mut number_of_magical_entities: usize = 0;
@@ -619,7 +619,7 @@ impl Spell {
     }
 
     fn emit_component_cast(&mut self, component_code: u64, efficiency_increase: f64) {
-        self.base_mut().emit_signal("component_cast".into(), &[Variant::from(component_code), Variant::from(efficiency_increase)]);
+        self.base_mut().emit_signal("component_cast", &[Variant::from(component_code), Variant::from(efficiency_increase)]);
     }
 
     fn get_number_of_component_parameters(component_code: &u64) -> usize {
@@ -911,9 +911,9 @@ impl Spell {
         self.set_shape(shape);
         self.set_visibility(false);
         let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene").cast::<Node3D>();
-        instantiated_scene.set_name(FORM_NAME.into());
+        instantiated_scene.set_name(FORM_NAME);
         instantiated_scene.set_basis(self.original_direction);
-        self.base_mut().add_child(instantiated_scene);
+        self.base_mut().add_child(&instantiated_scene);
     }
 
     fn undo_form(&mut self) {
@@ -985,7 +985,7 @@ impl HasShape for Spell {
             },
             None => {
                 let mut collision_shape = CollisionShape3D::new_alloc();
-                collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into());
+                collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME);
                 collision_shape
             }
         };
@@ -1010,40 +1010,40 @@ impl HasShape for Spell {
             Shape::Sphere(sphere) => {
                 // Creating sphere shape
                 let mut shape = SphereShape3D::new_gd();
-                shape.set_name(SPELL_SHAPE_NAME.into());
+                shape.set_name(SPELL_SHAPE_NAME);
                 shape.set_radius(sphere.radius as f32);
-                collision_shape.set_shape(shape.upcast::<Shape3D>());
+                collision_shape.set_shape(&shape.upcast::<Shape3D>());
 
                 // Creating visual representation of spell in godot
                 let mut csg_sphere = CsgSphere3D::new_alloc();
-                csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into());
+                csg_sphere.set_name(SPELL_CSG_SHAPE_NAME);
                 csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
                 csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
                 csg_sphere.set_radius(sphere.radius as f32);
-                csg_sphere.set_material(csg_material);
-                self.base_mut().add_child(csg_sphere.upcast::<Node>());
+                csg_sphere.set_material(&csg_material);
+                self.base_mut().add_child(&csg_sphere.upcast::<Node>());
             },
             Shape::Cube(cube) => {
                 // Creating box shape
                 let mut shape = BoxShape3D::new_gd();
-                shape.set_name(SPELL_SHAPE_NAME.into());
+                shape.set_name(SPELL_SHAPE_NAME);
                 let box_size = Vector3 { x: cube.x as f32, y: cube.y as f32, z: cube.z as f32 };
                 shape.set_size(box_size);
-                collision_shape.set_shape(shape.upcast::<Shape3D>());
+                collision_shape.set_shape(&shape.upcast::<Shape3D>());
                 collision_shape.set_basis(self.original_direction);
 
                 // Creating visual representation of spell in godot
                 let mut csg_box = CsgBox3D::new_alloc();
-                csg_box.set_name(SPELL_CSG_SHAPE_NAME.into());
+                csg_box.set_name(SPELL_CSG_SHAPE_NAME);
                 csg_box.set_size(box_size);
-                csg_box.set_material(csg_material);
+                csg_box.set_material(&csg_material);
                 csg_box.set_basis(self.original_direction);
-                self.base_mut().add_child(csg_box.upcast::<Node>());
+                self.base_mut().add_child(&csg_box.upcast::<Node>());
             }
         };
 
         if !collision_shape_exists {
-            self.base_mut().add_child(collision_shape.upcast::<Node>());
+            self.base_mut().add_child(&collision_shape.upcast::<Node>());
         }
     }
 
@@ -1181,7 +1181,7 @@ impl Spell {
     #[func]
     fn connect_player(&mut self, player: Gd<Node>) {
         let update_function = player.callable("increase_component_efficiency");
-        self.base_mut().connect("component_cast".into(), update_function);
+        self.base_mut().connect("component_cast", &update_function);
     }
 
     #[signal]

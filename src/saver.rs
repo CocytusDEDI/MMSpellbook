@@ -8,8 +8,6 @@ use serde::de::DeserializeOwned;
 use std::fs;
 use toml;
 
-use godot::prelude::*;
-
 use crate::{CustomColor, Shape};
 
 const SPELL_CONFIG_PATH: &'static str = "Spell/config.toml";
@@ -52,7 +50,7 @@ pub mod godot_json_saver {
     where
         T: DeserializeOwned
     {
-        let mut json_file = FileAccess::open(path.into(), ModeFlags::READ).ok_or("Couldn't open file")?;
+        let mut json_file = FileAccess::open(path, ModeFlags::READ).ok_or("Couldn't open file")?;
         let file_text: String = json_file.get_as_text().into();
         json_file.close();
         let object: T = serde_json::from_str(&file_text).map_err(|_| "Couldn't parse json")?;
@@ -66,14 +64,14 @@ pub mod godot_json_saver {
         let parsed_path = local_path.trim().strip_prefix('/').unwrap_or(local_path);
         let file_path: Vec<&str> = parsed_path.split('/').collect();
 
-        let mut json_file = match FileAccess::open(parsed_path.into(), ModeFlags::WRITE) {
+        let mut json_file = match FileAccess::open(parsed_path, ModeFlags::WRITE) {
             Some(file) => file,
             None => {
-                DirAccess::open("user://".to_godot()).ok_or("Couldn't open user dir")?.make_dir_recursive(GString::from(format!("{}/{}", SPELL_SAVE_FOLDER, file_path[..file_path.len()-1].join("/"))));
-                FileAccess::open(format!("user://{}/{}", SPELL_SAVE_FOLDER, file_path.join("/")).into(), ModeFlags::WRITE).ok_or("Couldn't open file with write access")?
+                DirAccess::open("user://").ok_or("Couldn't open user dir")?.make_dir_recursive(&format!("{}/{}", SPELL_SAVE_FOLDER, file_path[..file_path.len()-1].join("/")));
+                FileAccess::open(&format!("user://{}/{}", SPELL_SAVE_FOLDER, file_path.join("/")), ModeFlags::WRITE).ok_or("Couldn't open file with write access")?
             }
         };
-        json_file.store_string(serde_json::to_string::<T>(&object).map_err(|_| "Couldn't serialize data")?.into());
+        json_file.store_string(&serde_json::to_string::<T>(&object).map_err(|_| "Couldn't serialize data")?);
         json_file.close();
         Ok(())
     }
