@@ -911,7 +911,7 @@ impl Spell {
         self.set_shape(shape);
         self.set_visibility(false);
         let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene").cast::<Node3D>();
-        instantiated_scene.set_name(FORM_NAME.into_godot());
+        instantiated_scene.set_name(FORM_NAME.into());
         instantiated_scene.set_basis(self.original_direction);
         self.base_mut().add_child(instantiated_scene);
     }
@@ -921,7 +921,7 @@ impl Spell {
             return
         }
         self.form_set = false;
-        let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME.into_godot());
+        let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME);
         form.free();
         self.shape = None;
         self.update_natural_shape();
@@ -985,7 +985,7 @@ impl HasShape for Spell {
             },
             None => {
                 let mut collision_shape = CollisionShape3D::new_alloc();
-                collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into_godot());
+                collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME.into());
                 collision_shape
             }
         };
@@ -1010,13 +1010,13 @@ impl HasShape for Spell {
             Shape::Sphere(sphere) => {
                 // Creating sphere shape
                 let mut shape = SphereShape3D::new_gd();
-                shape.set_name(SPELL_SHAPE_NAME.into_godot());
+                shape.set_name(SPELL_SHAPE_NAME.into());
                 shape.set_radius(sphere.radius as f32);
                 collision_shape.set_shape(shape.upcast::<Shape3D>());
 
                 // Creating visual representation of spell in godot
                 let mut csg_sphere = CsgSphere3D::new_alloc();
-                csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_sphere.set_name(SPELL_CSG_SHAPE_NAME.into());
                 csg_sphere.set_rings(CSG_SPHERE_DETAIL.0);
                 csg_sphere.set_radial_segments(CSG_SPHERE_DETAIL.1);
                 csg_sphere.set_radius(sphere.radius as f32);
@@ -1026,7 +1026,7 @@ impl HasShape for Spell {
             Shape::Cube(cube) => {
                 // Creating box shape
                 let mut shape = BoxShape3D::new_gd();
-                shape.set_name(SPELL_SHAPE_NAME.into_godot());
+                shape.set_name(SPELL_SHAPE_NAME.into());
                 let box_size = Vector3 { x: cube.x as f32, y: cube.y as f32, z: cube.z as f32 };
                 shape.set_size(box_size);
                 collision_shape.set_shape(shape.upcast::<Shape3D>());
@@ -1034,7 +1034,7 @@ impl HasShape for Spell {
 
                 // Creating visual representation of spell in godot
                 let mut csg_box = CsgBox3D::new_alloc();
-                csg_box.set_name(SPELL_CSG_SHAPE_NAME.into_godot());
+                csg_box.set_name(SPELL_CSG_SHAPE_NAME.into());
                 csg_box.set_size(box_size);
                 csg_box.set_material(csg_material);
                 csg_box.set_basis(self.original_direction);
@@ -1048,7 +1048,7 @@ impl HasShape for Spell {
     }
 
     fn set_visibility(&mut self, visible: bool) {
-        let mut csg: Gd<CsgPrimitive3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME.into_godot());
+        let mut csg: Gd<CsgPrimitive3D> = self.base_mut().get_node_as(SPELL_CSG_SHAPE_NAME);
         csg.set_visible(visible);
     }
 }
