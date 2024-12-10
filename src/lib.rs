@@ -34,6 +34,9 @@ use codes::attributecodes::*;
 use codes::opcodes::*;
 use codes::datatypes::*;
 
+/// How often spells instructions should be processed. The specified frequency is multiplied by this constant.
+const PROCESS_FREQUENCY: usize = 1; // TODO: Test changing this doesn't break anything
+
 /// When a spell has energy below this level it is discarded as being insignificant
 pub const ENERGY_CONSIDERATION_LEVEL: f64 = 0.1;
 
@@ -102,7 +105,8 @@ const COMPONENT_2_ARGS: &[u64] = &[];
 const COMPONENT_7_ARGS: &[u64] = &[FLOAT, FLOAT, FLOAT, FLOAT];
 
 lazy_static! {
-    // Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements)
+    /// Maps component bytecode to functions and its parameter datatypes and its return type.
+    /// Component_bytecode -> (function, parameter types represented by u64, return type of the function for if statements).
     static ref COMPONENT_TO_FUNCTION_MAP: HashMap<u64, (fn(&mut Spell, &[u64], bool) -> Option<Vec<u64>>, &'static[u64], ReturnType)> = {
         let mut component_map = HashMap::new();
         // Utility:
@@ -334,8 +338,6 @@ impl IArea3D for Spell {
         // Handle instructions
         let mut instructions = std::mem::take(&mut self.process_instructions);
         for process in instructions.iter_mut() {
-            // Handle instructions, frees the spell if it fails
-
             process.increment();
 
             if !process.should_run() { continue };
@@ -763,7 +765,7 @@ impl Spell {
                         WHEN_CREATED_SECTION => self.ready_instructions = section_instructions.clone(),
                         REPEAT_SECTION => {
                             section_instructions.remove(0); // Removes the number literal opcode
-                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
+                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize * PROCESS_FREQUENCY, section_instructions.clone()))
                         },
                         ABOUT_SECTION => {
                             self.set_about_section(section_instructions.clone())
@@ -1055,6 +1057,7 @@ impl HasShape for Spell {
 
 #[godot_api]
 impl Spell {
+    /// Reduces the energy of the spell by `damage`
     #[func]
     fn take_damage(&mut self, damage: f64) {
         self.energy -= damage;
@@ -1070,7 +1073,7 @@ impl Spell {
         self.original_direction
     }
 
-    /// Checks instructions against the component catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered.
+    /// Checks instructions against the component catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered
     #[func]
     fn check_allowed_to_cast(instructions_json: GString, component_catalogue_path: GString) -> Dictionary {
         let component_catalogue: ComponentCatalogue = godot_json_saver::from_path(&component_catalogue_path.to_string()).unwrap();
