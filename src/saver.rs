@@ -3,8 +3,8 @@ use std::collections::HashMap;
 // File system imports
 use godot::classes::file_access::ModeFlags;
 use godot::classes::FileAccess;
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use toml;
 
@@ -17,13 +17,13 @@ pub type StringCustomTranslation = HashMap<String, HashMap<String, u64>>;
 
 #[derive(Deserialize, Serialize)]
 pub struct PlayerConfig {
-    pub color: CustomColor
+    pub color: CustomColor,
 }
 
 #[derive(Default)]
 pub struct Config {
     pub forms: HashMap<u64, FormConfig>,
-    pub custom_translation: StringCustomTranslation
+    pub custom_translation: StringCustomTranslation,
 }
 
 #[derive(Deserialize)]
@@ -31,14 +31,14 @@ struct StringConfig {
     #[serde(default)]
     forms: HashMap<String, FormConfig>,
     #[serde(default)]
-    custom_translation: StringCustomTranslation
+    custom_translation: StringCustomTranslation,
 }
 
 #[derive(Deserialize, Clone)]
 pub struct FormConfig {
     pub path: String,
     pub energy_required: f64,
-    pub shape: Shape
+    pub shape: Shape,
 }
 
 pub mod godot_json_saver {
@@ -48,7 +48,7 @@ pub mod godot_json_saver {
 
     pub fn from_path<T>(path: &str) -> Result<T, &'static str>
     where
-        T: DeserializeOwned
+        T: DeserializeOwned,
     {
         let mut json_file = FileAccess::open(path, ModeFlags::READ).ok_or("Couldn't open file")?;
         let file_text: String = json_file.get_as_text().into();
@@ -59,7 +59,7 @@ pub mod godot_json_saver {
 
     pub fn save<T>(object: T, local_path: &str) -> Result<(), &'static str>
     where
-        T: Serialize
+        T: Serialize,
     {
         let parsed_path = local_path.trim().strip_prefix('/').unwrap_or(local_path);
         let file_path: Vec<&str> = parsed_path.split('/').collect();
@@ -67,11 +67,23 @@ pub mod godot_json_saver {
         let mut json_file = match FileAccess::open(parsed_path, ModeFlags::WRITE) {
             Some(file) => file,
             None => {
-                DirAccess::open("user://").ok_or("Couldn't open user dir")?.make_dir_recursive(&format!("{}/{}", SPELL_SAVE_FOLDER, file_path[..file_path.len()-1].join("/")));
-                FileAccess::open(&format!("user://{}/{}", SPELL_SAVE_FOLDER, file_path.join("/")), ModeFlags::WRITE).ok_or("Couldn't open file with write access")?
+                DirAccess::open("user://")
+                    .ok_or("Couldn't open user dir")?
+                    .make_dir_recursive(&format!(
+                        "{}/{}",
+                        SPELL_SAVE_FOLDER,
+                        file_path[..file_path.len() - 1].join("/")
+                    ));
+                FileAccess::open(
+                    &format!("user://{}/{}", SPELL_SAVE_FOLDER, file_path.join("/")),
+                    ModeFlags::WRITE,
+                )
+                .ok_or("Couldn't open file with write access")?
             }
         };
-        json_file.store_string(&serde_json::to_string::<T>(&object).map_err(|_| "Couldn't serialize data")?);
+        json_file.store_string(
+            &serde_json::to_string::<T>(&object).map_err(|_| "Couldn't serialize data")?,
+        );
         json_file.close();
         Ok(())
     }
@@ -86,15 +98,24 @@ impl Config {
 impl StringConfig {
     /// Consumes self and converts the `StringConfig` into a normal `Config` wrapped in a result
     fn into_config(self) -> Result<Config, String> {
-        let mut config = Config {forms: HashMap::new(), custom_translation: self.custom_translation};
+        let mut config = Config {
+            forms: HashMap::new(),
+            custom_translation: self.custom_translation,
+        };
         for (key, value) in &self.forms {
-            config.forms.insert(key.parse().map_err(|_| "Couldn't parse config.toml: Failed to parse form keys into numbers")?, value.clone());
+            config.forms.insert(
+                key.parse().map_err(|_| {
+                    "Couldn't parse config.toml: Failed to parse form keys into numbers"
+                })?,
+                value.clone(),
+            );
         }
         Ok(config)
     }
 
     fn load_string_config() -> Result<StringConfig, String> {
         let config_file = fs::read_to_string(SPELL_CONFIG_PATH).unwrap_or_default();
-        toml::de::from_str(&config_file).map_err(|err| format!("Couldn't parse config.toml: {}", err.message()))
+        toml::de::from_str(&config_file)
+            .map_err(|err| format!("Couldn't parse config.toml: {}", err.message()))
     }
 }

@@ -1,38 +1,27 @@
 use lazy_static::lazy_static;
-use serde_json::json;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
-use std::f64::consts::{PI, E};
+use std::f64::consts::{E, PI};
 
 // Godot imports
-use godot::prelude::*;
-use godot::classes::Time;
-use godot::classes::Area3D;
-use godot::classes::IArea3D;
-use godot::classes::CollisionShape3D;
-use godot::classes::SphereShape3D;
-use godot::classes::BoxShape3D;
-use godot::classes::CsgSphere3D;
-use godot::classes::CsgBox3D;
-use godot::classes::CsgPrimitive3D;
-use godot::classes::Shape3D;
-use godot::classes::StandardMaterial3D;
-use godot::classes::base_material_3d::Transparency;
-use godot::classes::base_material_3d::Feature;
 use godot::builtin::Basis;
+use godot::classes::{
+    base_material_3d::{Feature, Transparency},
+    Area3D, BoxShape3D, CollisionShape3D, CsgBox3D, CsgPrimitive3D, CsgSphere3D, IArea3D, Shape3D,
+    SphereShape3D, StandardMaterial3D, Time,
+};
+use godot::prelude::*;
 
-mod spelltranslator;
+mod codes;
 mod component_functions;
 mod magical_entity;
 mod saver;
-mod codes;
+mod spelltranslator;
 
-use saver::{Config, godot_json_saver};
+use codes::{attributecodes::*, componentcodes::*, datatypes::*, opcodes::*};
 use magical_entity::MagicalEntity;
-use codes::componentcodes::*;
-use codes::attributecodes::*;
-use codes::opcodes::*;
-use codes::datatypes::*;
+use saver::{godot_json_saver, Config};
 
 /// How often spells instructions should be processed. The specified frequency is multiplied by this constant.
 const PROCESS_FREQUENCY: usize = 1; // TODO: Test changing this doesn't break anything
@@ -61,7 +50,11 @@ const ENERGY_TO_VOLUME: f64 = 0.0005;
 const CSG_SPHERE_DETAIL: (i32, i32) = (18, 20);
 
 /// The default colour of spells
-const DEFAULT_COLOR: CustomColor = CustomColor { r: 0.1, g: 0.0, b: 0.9 };
+const DEFAULT_COLOR: CustomColor = CustomColor {
+    r: 0.1,
+    g: 0.0,
+    b: 0.9,
+};
 
 // The names of child nodes of the spell. Can be changed if you wish to use them yourself instead
 const SPELL_COLLISION_SHAPE_NAME: &'static str = "spell_collision_shape";
@@ -73,30 +66,37 @@ const FORM_NAME: &'static str = "form";
 struct CustomColor {
     r: f32,
     g: f32,
-    b: f32
+    b: f32,
 }
 
 impl CustomColor {
     pub fn into_spell_color(self) -> Color {
-        Color { r: self.r, g: self.g, b: self.b, a: SPELL_TRANSPARENCY }
+        Color {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: SPELL_TRANSPARENCY,
+        }
     }
 }
 
 #[derive(Deserialize, Serialize, Clone)]
 struct ComponentCatalogue {
-    pub component_catalogue: HashMap<u64, Vec<Vec<u64>>>
+    pub component_catalogue: HashMap<u64, Vec<Vec<u64>>>,
 }
 
 impl ComponentCatalogue {
     fn new() -> Self {
-        ComponentCatalogue { component_catalogue: HashMap::new() }
+        ComponentCatalogue {
+            component_catalogue: HashMap::new(),
+        }
     }
 }
 
 enum ReturnType {
     Float,
     Boolean,
-    None
+    None,
 }
 
 const COMPONENT_0_ARGS: &[u64] = &[FLOAT, FLOAT, FLOAT];
@@ -134,26 +134,28 @@ lazy_static! {
 #[derive(Clone, Copy, Deserialize)]
 enum Shape {
     Sphere(Sphere),
-    Cube(Cube)
+    Cube(Cube),
 }
 
 impl HasVolume for Shape {
     fn get_volume(&self) -> f64 {
         match self {
             Self::Sphere(sphere) => sphere.get_volume(),
-            Self::Cube(cube) => cube.get_volume()
+            Self::Cube(cube) => cube.get_volume(),
         }
     }
 }
 
 #[derive(Clone, Copy, Deserialize)]
 struct Sphere {
-    radius: f64
+    radius: f64,
 }
 
 impl Sphere {
     fn from_volume(volume: f64) -> Self {
-        Sphere { radius: Sphere::get_radius_from_volume(volume) }
+        Sphere {
+            radius: Sphere::get_radius_from_volume(volume),
+        }
     }
 
     fn get_radius_from_volume(volume: f64) -> f64 {
@@ -171,7 +173,7 @@ impl HasVolume for Sphere {
 struct Cube {
     x: f64,
     y: f64,
-    z: f64
+    z: f64,
 }
 
 impl HasVolume for Cube {
@@ -193,12 +195,16 @@ trait HasShape {
 struct Process {
     counter: usize,
     frequency: usize,
-    instructions: Vec<u64>
+    instructions: Vec<u64>,
 }
 
 impl Process {
     fn new(frequency: usize, instructions: Vec<u64>) -> Self {
-        Process { counter: 0, frequency, instructions}
+        Process {
+            counter: 0,
+            frequency,
+            instructions,
+        }
     }
 
     fn increment(&mut self) {
@@ -304,8 +310,8 @@ impl IArea3D for Spell {
 
         // Frees the spell if it ran out of energy to cast a component
         match spell_result {
-            Ok(()) => {},
-            Err(_) => self.perish()
+            Ok(()) => {}
+            Err(_) => self.perish(),
         };
 
         // Check if spell should be deleted due to lack of energy
@@ -332,7 +338,7 @@ impl IArea3D for Spell {
         // Reduces energy due to anchor if there is one
         if !self.surmount_anchor_resistance() {
             self.perish();
-            return
+            return;
         }
 
         // Handle instructions
@@ -340,11 +346,13 @@ impl IArea3D for Spell {
         for process in instructions.iter_mut() {
             process.increment();
 
-            if !process.should_run() { continue };
+            if !process.should_run() {
+                continue;
+            };
 
             match self.spell_virtual_machine(&process.instructions) {
-                Ok(()) => {},
-                Err(_) => self.perish()
+                Ok(()) => {}
+                Err(_) => self.perish(),
             }
 
             // Check if spell should be deleted due to lack of energy
@@ -375,7 +383,10 @@ impl IArea3D for Spell {
                     let spell_parent = spell.get_parent();
 
                     // If either spell has no parent, or they have different parents, proceed with damage
-                    if self_parent.is_none() || spell_parent.is_none() || self_parent != spell_parent {
+                    if self_parent.is_none()
+                        || spell_parent.is_none()
+                        || self_parent != spell_parent
+                    {
                         number_of_magical_entities += 1;
                     }
                 }
@@ -406,7 +417,10 @@ impl IArea3D for Spell {
                     let spell_parent = spell.get_parent();
 
                     // If either spell has no parent, or they have different parents, proceed with damage
-                    if self_parent.is_none() || spell_parent.is_none() || self_parent != spell_parent {
+                    if self_parent.is_none()
+                        || spell_parent.is_none()
+                        || self_parent != spell_parent
+                    {
                         let mut spell_bind = spell.bind_mut();
 
                         let damage = self.damage / number_of_magical_entities as f64;
@@ -447,37 +461,62 @@ impl IArea3D for Spell {
     }
 }
 
-
 impl Spell {
     fn spell_virtual_machine(&mut self, instructions: &[u64]) -> Result<(), &'static str> {
         let mut instructions_iter = instructions.iter();
         while let Some(&bits) = instructions_iter.next() {
             match bits {
-                END_OF_SCOPE => {}, // 0 = end of scope, if reached naturely, move on
-                COMPONENT => { // 103 = component
+                END_OF_SCOPE => {} // 0 = end of scope, if reached naturely, move on
+                COMPONENT => {
+                    // 103 = component
                     self.execute_component(&mut instructions_iter)?;
-                },
-                IF => { // 400 = if statement
+                }
+                IF => {
+                    // 400 = if statement
                     let mut rpn_stack: Vec<u64> = Vec::new();
                     while let Some(&if_bits) = instructions_iter.next() {
                         match if_bits {
                             END_OF_SCOPE => break,
                             TRUE | FALSE => rpn_stack.push(if_bits), // true and false
-                            NUMBER_LITERAL => rpn_stack.extend(vec![NUMBER_LITERAL, *instructions_iter.next().expect("Expected following value")]), // if 102, next bits are a number literal
-                            COMPONENT => rpn_stack.extend(self.execute_component(&mut instructions_iter)?), // Component
-                            AND => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and).unwrap_or_else(|err| panic!("{}", err)), // And statement
-                            OR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or).unwrap_or_else(|err| panic!("{}", err)), // Or statement
-                            NOT => { // Not statement
+                            NUMBER_LITERAL => rpn_stack.extend(vec![
+                                NUMBER_LITERAL,
+                                *instructions_iter.next().expect("Expected following value"),
+                            ]), // if 102, next bits are a number literal
+                            COMPONENT => {
+                                rpn_stack.extend(self.execute_component(&mut instructions_iter)?)
+                            } // Component
+                            AND => {
+                                rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and)
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // And statement
+                            OR => {
+                                rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or)
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // Or statement
+                            NOT => {
+                                // Not statement
                                 let bool_one = rpn_stack.pop().expect("Expected value to compare");
-                                rpn_stack.push(boolean_logic::not(bool_one).unwrap_or_else(|err| panic!("{}", err)));
-                            },
-                            XOR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor).unwrap_or_else(|err| panic!("{}", err)), // Xor statement
-                            EQUALS => { // Equals statement
-                                let argument_two = rpn_stack.pop().expect("Expected value to compare");
-                                let opcode_or_bool = rpn_stack.pop().expect("Expected value to compare");
+                                rpn_stack.push(
+                                    boolean_logic::not(bool_one)
+                                        .unwrap_or_else(|err| panic!("{}", err)),
+                                );
+                            }
+                            XOR => {
+                                rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor)
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // Xor statement
+                            EQUALS => {
+                                // Equals statement
+                                let argument_two =
+                                    rpn_stack.pop().expect("Expected value to compare");
+                                let opcode_or_bool =
+                                    rpn_stack.pop().expect("Expected value to compare");
                                 if opcode_or_bool == NUMBER_LITERAL {
-                                    let argument_one = f64::from_bits(rpn_stack.pop().expect("Expected value to compare"));
-                                    let _ = rpn_stack.pop().expect("Expected number literal opcode");
+                                    let argument_one = f64::from_bits(
+                                        rpn_stack.pop().expect("Expected value to compare"),
+                                    );
+                                    let _ =
+                                        rpn_stack.pop().expect("Expected number literal opcode");
                                     if argument_one == f64::from_bits(argument_two) {
                                         rpn_stack.push(TRUE);
                                     } else {
@@ -490,24 +529,42 @@ impl Spell {
                                         rpn_stack.push(FALSE);
                                     }
                                 }
-                            },
-                            GREATER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b).unwrap_or_else(|err| panic!("{}", err)), // Greater than
-                            LESSER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b).unwrap_or_else(|err| panic!("{}", err)), // Lesser than
-                            MULTIPLY => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b).unwrap_or_else(|err| panic!("{}", err)), // Multiply
-                            DIVIDE => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b).unwrap_or_else(|err| panic!("{}", err)), // Divide
-                            ADD => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b).unwrap_or_else(|err| panic!("{}", err)), // Add
-                            SUBTRACT => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b).unwrap_or_else(|err| panic!("{}", err)), // Subtract
-                            POWER => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b)).unwrap_or_else(|err| panic!("{}", err)), // Power
-                            _ => panic!("Opcode doesn't exist")
+                            }
+                            GREATER_THAN => {
+                                rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b)
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // Greater than
+                            LESSER_THAN => {
+                                rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b)
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // Lesser than
+                            MULTIPLY => {
+                                rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b)
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // Multiply
+                            DIVIDE => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b)
+                                .unwrap_or_else(|err| panic!("{}", err)), // Divide
+                            ADD => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b)
+                                .unwrap_or_else(|err| panic!("{}", err)), // Add
+                            SUBTRACT => {
+                                rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b)
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // Subtract
+                            POWER => {
+                                rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b))
+                                    .unwrap_or_else(|err| panic!("{}", err))
+                            } // Power
+                            _ => panic!("Opcode doesn't exist"),
                         };
                     }
                     match rpn_stack.pop().expect("Expected final bool") {
-                        TRUE => {}, // if true, execute by going back into normal loop
-                        FALSE => { // if false, skip to the end of scope
+                        TRUE => {} // if true, execute by going back into normal loop
+                        FALSE => {
+                            // if false, skip to the end of scope
                             let mut skip_amount: usize = 1;
                             while let Some(&skipping_bits) = instructions_iter.next() {
                                 match skipping_bits {
-                                    END_OF_SCOPE => skip_amount -= 1, // If end of scope
+                                    END_OF_SCOPE => skip_amount -= 1,               // If end of scope
                                     NUMBER_LITERAL => _ = instructions_iter.next(), // Ignores number literals
                                     COMPONENT => {
                                         self.skip_component(&mut instructions_iter);
@@ -520,10 +577,10 @@ impl Spell {
                                 }
                             }
                         }
-                        _ => panic!("Expected bool")
+                        _ => panic!("Expected bool"),
                     };
-                },
-                _ => panic!("Not valid opcode")
+                }
+                _ => panic!("Not valid opcode"),
             }
         }
         Ok(())
@@ -531,21 +588,30 @@ impl Spell {
 
     fn skip_component<'a>(&mut self, instructions_iter: &mut impl Iterator<Item = &'a u64>) {
         let component_code = instructions_iter.next().expect("Expected component");
-        let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
+        let number_of_component_parameters =
+            Spell::get_number_of_component_parameters(component_code);
         for _ in 0..number_of_component_parameters {
             let parameter = *instructions_iter.next().expect("Expected parameter");
             match parameter {
-                TRUE | FALSE => {},
-                NUMBER_LITERAL => _ = *instructions_iter.next().expect("Expected number after number literal opcode"),
+                TRUE | FALSE => {}
+                NUMBER_LITERAL => {
+                    _ = *instructions_iter
+                        .next()
+                        .expect("Expected number after number literal opcode")
+                }
                 COMPONENT => _ = self.execute_component(instructions_iter),
-                _ => panic!("Invalid parameter skipped")
+                _ => panic!("Invalid parameter skipped"),
             };
         }
     }
 
-    fn execute_component<'a>(&mut self, instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<Vec<u64>, &'static str> {
+    fn execute_component<'a>(
+        &mut self,
+        instructions_iter: &mut impl Iterator<Item = &'a u64>,
+    ) -> Result<Vec<u64>, &'static str> {
         let component_code = instructions_iter.next().expect("Expected component");
-        let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
+        let number_of_component_parameters =
+            Spell::get_number_of_component_parameters(component_code);
         let mut parameters: Vec<u64> = Vec::new();
         for parameter_number in 0..number_of_component_parameters {
             let parameter = *instructions_iter.next().expect("Expected parameter");
@@ -553,45 +619,73 @@ impl Spell {
                 TRUE | FALSE => parameters.push(parameter),
                 NUMBER_LITERAL => {
                     parameters.push(parameter);
-                    parameters.push(*instructions_iter.next().expect("Expected number after number literal opcode"));
-                },
+                    parameters.push(
+                        *instructions_iter
+                            .next()
+                            .expect("Expected number after number literal opcode"),
+                    );
+                }
                 COMPONENT => {
                     let component_return = self.execute_component(instructions_iter)?;
                     // Checks if component return is an allowed parameter as it can't be known at compile time
                     if self.check_component_return_value {
-                        let allowed_parameters_list: &Vec<Vec<u64>> = self.component_catalogue.component_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in component catalogue")?;
-                        Spell::check_if_parameter_allowed(&component_return, &allowed_parameters_list[parameter_number])?;
+                        let allowed_parameters_list: &Vec<Vec<u64>> = self
+                            .component_catalogue
+                            .component_catalogue
+                            .get(&component_code.to_godot())
+                            .ok_or("Component isn't in component catalogue")?;
+                        Spell::check_if_parameter_allowed(
+                            &component_return,
+                            &allowed_parameters_list[parameter_number],
+                        )?;
                     }
                     parameters.extend(component_return);
-                },
-                _ => panic!("Invalid parameter")
+                }
+                _ => panic!("Invalid parameter"),
             }
         }
 
-        return self.call_component(component_code, parameters)
+        return self.call_component(component_code, parameters);
     }
 
-    fn call_component(&mut self, component_code: &u64, parameters: Vec<u64>) -> Result<Vec<u64>, &'static str> {
+    fn call_component(
+        &mut self,
+        component_code: &u64,
+        parameters: Vec<u64>,
+    ) -> Result<Vec<u64>, &'static str> {
         // Removes number literal opcodes
         let mut compressed_parameters: Vec<u64> = Vec::new();
         let mut parameter_iter = parameters.iter();
         while let Some(&parameter) = parameter_iter.next() {
             match parameter {
-                NUMBER_LITERAL => compressed_parameters.push(*parameter_iter.next().expect("Expected parameter after number literal opcode")),
+                NUMBER_LITERAL => compressed_parameters.push(
+                    *parameter_iter
+                        .next()
+                        .expect("Expected parameter after number literal opcode"),
+                ),
                 TRUE | FALSE => compressed_parameters.push(parameter),
-                _ => panic!("Invalid parameter: isn't float or boolean")
+                _ => panic!("Invalid parameter: isn't float or boolean"),
             }
         }
 
         // Getting component cast count
         if let Some((function, _, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-            let mut component_efficiency_level = self.component_efficiency_levels.entry(*component_code).or_insert(1.0).clone();
+            let mut component_efficiency_level = self
+                .component_efficiency_levels
+                .entry(*component_code)
+                .or_insert(1.0)
+                .clone();
 
             // Getting energy required
             if let Some(base_energy_bits) = function(self, &compressed_parameters, false) {
-                let base_energy = f64::from_bits(*base_energy_bits.first().expect("Expected energy useage return"));
+                let base_energy = f64::from_bits(
+                    *base_energy_bits
+                        .first()
+                        .expect("Expected energy useage return"),
+                );
                 // Getting efficiency from component_efficiency_level
-                let efficiency = component_efficiency_level / (component_efficiency_level + EFFICIENCY_INCREASE_RATE);
+                let efficiency = component_efficiency_level
+                    / (component_efficiency_level + EFFICIENCY_INCREASE_RATE);
                 let energy_needed = base_energy / efficiency;
                 if self.energy >= energy_needed {
                     self.energy -= energy_needed;
@@ -599,18 +693,19 @@ impl Spell {
                     // Updating component cast count
                     let efficiency_increase = base_energy;
                     component_efficiency_level += efficiency_increase;
-                    self.component_efficiency_levels.insert(*component_code, component_efficiency_level);
+                    self.component_efficiency_levels
+                        .insert(*component_code, component_efficiency_level);
 
                     // Emit signal to say component has been cast
                     self.emit_component_cast(*component_code, efficiency_increase);
 
                     if let Some(value) = function(self, &compressed_parameters, true) {
-                        return Ok(value)
+                        return Ok(value);
                     } else {
-                        return Ok(Vec::new())
+                        return Ok(Vec::new());
                     }
                 } else {
-                    return Err("Not enough energy")
+                    return Err("Not enough energy");
                 }
             } else {
                 panic!("Function should return base_energy when should_execute is false")
@@ -621,100 +716,140 @@ impl Spell {
     }
 
     fn emit_component_cast(&mut self, component_code: u64, efficiency_increase: f64) {
-        self.base_mut().emit_signal("component_cast", &[Variant::from(component_code), Variant::from(efficiency_increase)]);
+        self.base_mut().emit_signal(
+            "component_cast",
+            &[
+                Variant::from(component_code),
+                Variant::from(efficiency_increase),
+            ],
+        );
     }
 
     fn get_number_of_component_parameters(component_code: &u64) -> usize {
         if let Some((_, number_of_parameters, _)) = COMPONENT_TO_FUNCTION_MAP.get(&component_code) {
-            return number_of_parameters.len()
+            return number_of_parameters.len();
         } else {
             panic!("Component doesn't exist")
         }
     }
 
-    fn check_if_parameter_allowed(parameter: &Vec<u64>, allowed_values: &Vec<u64>) -> Result<(), &'static str> {
+    fn check_if_parameter_allowed(
+        parameter: &Vec<u64>,
+        allowed_values: &Vec<u64>,
+    ) -> Result<(), &'static str> {
         let mut allowed_iter = allowed_values.iter();
         match parameter[0] {
             TRUE => {
                 while let Some(&value) = allowed_iter.next() {
                     if value == TRUE || value == ANY {
-                        return Ok(())
+                        return Ok(());
                     }
                 }
-            },
+            }
             FALSE => {
                 while let Some(&value) = allowed_iter.next() {
                     if value == FALSE || value == ANY {
-                        return Ok(())
+                        return Ok(());
                     }
                 }
-            },
+            }
             NUMBER_LITERAL => {
                 while let Some(&value) = allowed_iter.next() {
                     if value == ANY {
-                        return Ok(())
+                        return Ok(());
                     }
                     let start_float_range = match value {
-                        NUMBER_LITERAL => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
-                        _ => return Err("Invalid type: Expected float")
+                        NUMBER_LITERAL => f64::from_bits(
+                            *allowed_iter
+                                .next()
+                                .expect("Expected value after number literal"),
+                        ),
+                        _ => return Err("Invalid type: Expected float"),
                     };
-                    let stop_float_range = match *allowed_iter.next().expect("Expected range of numbers") {
-                        NUMBER_LITERAL => f64::from_bits(*allowed_iter.next().expect("Expected value after number literal")),
-                        _ => return Err("Invalid type: Expected float")
-                    };
+                    let stop_float_range =
+                        match *allowed_iter.next().expect("Expected range of numbers") {
+                            NUMBER_LITERAL => f64::from_bits(
+                                *allowed_iter
+                                    .next()
+                                    .expect("Expected value after number literal"),
+                            ),
+                            _ => return Err("Invalid type: Expected float"),
+                        };
                     let range = start_float_range..=stop_float_range;
                     if range.contains(&f64::from_bits(parameter[1])) {
-                        return Ok(())
+                        return Ok(());
                     }
                 }
-            },
-            _ => return Err("Invalid parameter type")
+            }
+            _ => return Err("Invalid parameter type"),
         };
-        return Err("Parameter not allowed")
+        return Err("Parameter not allowed");
     }
 
     /// Checks if the magical entity has access to the component and can cast it with the given parameters. Doesn't check the return of components that are parameters.
-    fn check_allowed_to_cast_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u64>, component_catalogue: &ComponentCatalogue) -> Result<(), &'static str> {
+    fn check_allowed_to_cast_component<'a>(
+        instructions_iter: &mut impl Iterator<Item = &'a u64>,
+        component_catalogue: &ComponentCatalogue,
+    ) -> Result<(), &'static str> {
         let component_code = *instructions_iter.next().expect("Expected component code"); // Get component num to work out how many parameters to skip
-        let number_of_component_parameters = Spell::get_number_of_component_parameters(&component_code);
-        let allowed_parameters_list: &Vec<Vec<u64>> = component_catalogue.component_catalogue.get(&component_code.to_godot()).ok_or("Component isn't in component catalogue")?;
+        let number_of_component_parameters =
+            Spell::get_number_of_component_parameters(&component_code);
+        let allowed_parameters_list: &Vec<Vec<u64>> = component_catalogue
+            .component_catalogue
+            .get(&component_code.to_godot())
+            .ok_or("Component isn't in component catalogue")?;
 
         for index in 0..number_of_component_parameters {
             let parameter = match *instructions_iter.next().expect("Expected parameter") {
                 TRUE => vec![TRUE],
                 FALSE => vec![FALSE],
-                NUMBER_LITERAL => vec![NUMBER_LITERAL, *instructions_iter.next().expect("Expected parameter")],
+                NUMBER_LITERAL => vec![
+                    NUMBER_LITERAL,
+                    *instructions_iter.next().expect("Expected parameter"),
+                ],
                 COMPONENT => {
                     _ = instructions_iter.next();
-                    continue
-                },
-                _ => panic!("Invalid parameter")
+                    continue;
+                }
+                _ => panic!("Invalid parameter"),
             };
             Spell::check_if_parameter_allowed(&parameter, &allowed_parameters_list[index])?;
         }
-        return Ok(())
+        return Ok(());
     }
 
-    fn internal_check_allowed_to_cast(instructions: Vec<u64>, component_catalogue: &ComponentCatalogue) -> Result<(), &'static str> {
+    fn internal_check_allowed_to_cast(
+        instructions: Vec<u64>,
+        component_catalogue: &ComponentCatalogue,
+    ) -> Result<(), &'static str> {
         let mut instructions_iter = instructions.iter();
         let mut section: Option<u64> = None;
         while let Some(&bits) = instructions_iter.next() {
-            if section.is_some_and(|x| x == ABOUT_SECTION) && !(WHEN_CREATED_SECTION..=ABOUT_SECTION).contains(&bits)  {
+            if section.is_some_and(|x| x == ABOUT_SECTION)
+                && !(WHEN_CREATED_SECTION..=ABOUT_SECTION).contains(&bits)
+            {
                 continue;
             }
             match bits {
                 NUMBER_LITERAL => _ = instructions_iter.next(),
-                COMPONENT => _ = Spell::check_allowed_to_cast_component(&mut instructions_iter, &component_catalogue)?,
-                WHEN_CREATED_SECTION..=ABOUT_SECTION => {
-                    section = Some(bits)
-                },
+                COMPONENT => {
+                    _ = Spell::check_allowed_to_cast_component(
+                        &mut instructions_iter,
+                        &component_catalogue,
+                    )?
+                }
+                WHEN_CREATED_SECTION..=ABOUT_SECTION => section = Some(bits),
                 _ => {}
             }
         }
-        return Ok(())
+        return Ok(());
     }
 
-    fn add_component_to_component_catalogue(component_code: u64, parameter_restrictions: Vec<Vec<&str>>, component_catalogue: &mut ComponentCatalogue) {
+    fn add_component_to_component_catalogue(
+        component_code: u64,
+        parameter_restrictions: Vec<Vec<&str>>,
+        component_catalogue: &mut ComponentCatalogue,
+    ) {
         let mut parsed_parameter_restrictions: Vec<Vec<u64>> = Vec::new();
         let mut index = 0;
         for parameter_allowed_values in parameter_restrictions {
@@ -724,18 +859,34 @@ impl Spell {
                     "ANY" => {
                         parsed_parameter_restrictions[index].push(ANY);
                         break;
-                    },
+                    }
                     "true" => parsed_parameter_restrictions[index].push(TRUE),
                     "false" => parsed_parameter_restrictions[index].push(FALSE),
                     something => {
                         if let Ok(number) = something.parse::<f64>() {
-                            parsed_parameter_restrictions[index].extend(vec![NUMBER_LITERAL, f64::to_bits(number), NUMBER_LITERAL, f64::to_bits(number)]);
+                            parsed_parameter_restrictions[index].extend(vec![
+                                NUMBER_LITERAL,
+                                f64::to_bits(number),
+                                NUMBER_LITERAL,
+                                f64::to_bits(number),
+                            ]);
                         } else if something.contains('-') {
                             let numbers: Vec<&str> = something.split('-').collect();
-                            if let (Ok(start_range), Ok(stop_range)) = (numbers[0].trim().parse::<f64>(), numbers[1].trim().parse::<f64>()) {
-                                parsed_parameter_restrictions[index].extend(vec![NUMBER_LITERAL, f64::to_bits(start_range), NUMBER_LITERAL, f64::to_bits(stop_range)]);
+                            if let (Ok(start_range), Ok(stop_range)) = (
+                                numbers[0].trim().parse::<f64>(),
+                                numbers[1].trim().parse::<f64>(),
+                            ) {
+                                parsed_parameter_restrictions[index].extend(vec![
+                                    NUMBER_LITERAL,
+                                    f64::to_bits(start_range),
+                                    NUMBER_LITERAL,
+                                    f64::to_bits(stop_range),
+                                ]);
                             } else {
-                                panic!("Couldn't parse the range: {} to {}", numbers[0], numbers[1]);
+                                panic!(
+                                    "Couldn't parse the range: {} to {}",
+                                    numbers[0], numbers[1]
+                                );
                             }
                         }
                     }
@@ -744,7 +895,9 @@ impl Spell {
             index += 1;
         }
 
-        component_catalogue.component_catalogue.insert(component_code, parsed_parameter_restrictions);
+        component_catalogue
+            .component_catalogue
+            .insert(component_code, parsed_parameter_restrictions);
     }
 
     /// Gives a spell instance its instructions, used to avoid json translation
@@ -754,44 +907,52 @@ impl Spell {
         let mut instructions_iter = instructions.iter();
         while let Some(&instruction) = instructions_iter.next() {
             match instruction {
-                NUMBER_LITERAL => { // Number literal
+                NUMBER_LITERAL => {
+                    // Number literal
                     section_instructions.push(instruction);
-                    let something = *instructions_iter.next().expect("Expected number after literal opcode");
+                    let something = *instructions_iter
+                        .next()
+                        .expect("Expected number after literal opcode");
                     section_instructions.push(something);
-                },
+                }
                 WHEN_CREATED_SECTION..=ABOUT_SECTION => {
                     match last_section {
-                        END_OF_SCOPE => {},
-                        WHEN_CREATED_SECTION => self.ready_instructions = section_instructions.clone(),
+                        END_OF_SCOPE => {}
+                        WHEN_CREATED_SECTION => {
+                            self.ready_instructions = section_instructions.clone()
+                        }
                         REPEAT_SECTION => {
                             section_instructions.remove(0); // Removes the number literal opcode
-                            self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize * PROCESS_FREQUENCY, section_instructions.clone()))
-                        },
-                        ABOUT_SECTION => {
-                            self.set_about_section(section_instructions.clone())
-                        },
-                        _ => panic!("Invalid section")
+                            self.process_instructions.push(Process::new(
+                                f64::from_bits(section_instructions.remove(0)) as usize
+                                    * PROCESS_FREQUENCY,
+                                section_instructions.clone(),
+                            ))
+                        }
+                        ABOUT_SECTION => self.set_about_section(section_instructions.clone()),
+                        _ => panic!("Invalid section"),
                     }
 
                     section_instructions.clear();
                     last_section = instruction;
-                },
-                _ => section_instructions.push(instruction)
+                }
+                _ => section_instructions.push(instruction),
             }
         }
 
         // Match the finial section
         match last_section {
-            END_OF_SCOPE => {},
+            END_OF_SCOPE => {}
             WHEN_CREATED_SECTION => self.ready_instructions = section_instructions.clone(),
             REPEAT_SECTION => {
                 section_instructions.remove(0);
-                self.process_instructions.push(Process::new(f64::from_bits(section_instructions.remove(0)) as usize, section_instructions.clone()))
-            },
-            ABOUT_SECTION => {
-                self.set_about_section(section_instructions.clone())
-            },
-            _ => panic!("Invalid section")
+                self.process_instructions.push(Process::new(
+                    f64::from_bits(section_instructions.remove(0)) as usize,
+                    section_instructions.clone(),
+                ))
+            }
+            ABOUT_SECTION => self.set_about_section(section_instructions.clone()),
+            _ => panic!("Invalid section"),
         }
     }
 
@@ -799,21 +960,40 @@ impl Spell {
         let mut codes = attributes.into_iter();
         while let Some(code) = codes.next() {
             match code {
-                COLOR => { // Set colour
-                    match match vec![codes.next(), codes.next(), codes.next()].into_iter().collect::<Option<Vec<u64>>>(){ // Transpose vec of option into option of vec
+                COLOR => {
+                    // Set colour
+                    match match vec![codes.next(), codes.next(), codes.next()]
+                        .into_iter()
+                        .collect::<Option<Vec<u64>>>()
+                    {
+                        // Transpose vec of option into option of vec
                         Some(colour_vector) => colour_vector,
-                        None => panic!("Invalid data: There should be three color values")
-                    }.into_iter()
+                        None => panic!("Invalid data: There should be three color values"),
+                    }
+                    .into_iter()
                     .map(|x| f64::from_bits(x) as f32)
-                    .collect::<Vec<f32>>()[..] {
-                        [red, green, blue] => self.color = Color{r: red, g: green, b: blue, a: SPELL_TRANSPARENCY},
-                        _ => panic!("Failed to parse colors")
+                    .collect::<Vec<f32>>()[..]
+                    {
+                        [red, green, blue] => {
+                            self.color = Color {
+                                r: red,
+                                g: green,
+                                b: blue,
+                                a: SPELL_TRANSPARENCY,
+                            }
+                        }
+                        _ => panic!("Failed to parse colors"),
                     }
                 }
                 CHARGE_TO_SHAPE => {
-                    self.charge_to_shape = boolean_logic::num_to_bool(codes.next().expect("Expected boolean after charge_to_shape")).unwrap_or_else(|err| panic!("{err}"));
+                    self.charge_to_shape = boolean_logic::num_to_bool(
+                        codes
+                            .next()
+                            .expect("Expected boolean after charge_to_shape"),
+                    )
+                    .unwrap_or_else(|err| panic!("{err}"));
                 }
-                _ => panic!("Invalid attribute")
+                _ => panic!("Invalid attribute"),
             }
         }
     }
@@ -834,9 +1014,10 @@ impl Spell {
     fn anchor(&mut self) {
         let parent = match self.base().get_parent() {
             Some(node) => node.cast::<MagicalEntity>(),
-            None => panic!("Expected parent node")
+            None => panic!("Expected parent node"),
         };
-        let distance = (self.base().get_global_position() - parent.get_global_position()).length() as f64;
+        let distance =
+            (self.base().get_global_position() - parent.get_global_position()).length() as f64;
         if Sphere::get_radius_from_volume(self.get_natural_volume(self.energy)) >= distance {
             self.base_mut().set_position(parent.get_global_position());
             self.anchored_to = Some(parent);
@@ -850,7 +1031,7 @@ impl Spell {
         let position = self.base().get_global_position();
         match self.anchored_to {
             Some(ref mut magical_entity) => magical_entity.set_position(position),
-            None => return
+            None => return,
         }
         self.anchored_to = None;
         if !self.form_set {
@@ -882,7 +1063,7 @@ impl Spell {
                 } else {
                     bind_magical_entity.set_energy_charged(energy_charged - self.energy);
                     self.energy = 0.0;
-                    return false
+                    return false;
                 }
             }
 
@@ -890,18 +1071,22 @@ impl Spell {
             self.energy -= bind_magical_entity.get_mass() * MASS_MOVEMENT_COST;
 
             if !(self.energy > 0.0) {
-                return false
+                return false;
             }
         }
 
-        return true
+        return true;
     }
 
     fn set_form(&mut self, form_code: u64) {
         if self.form_set {
             self.undo_form();
         }
-        let form_config = self.config.forms.get(&form_code).expect("Expected form code to map to a form");
+        let form_config = self
+            .config
+            .forms
+            .get(&form_code)
+            .expect("Expected form code to map to a form");
 
         let scene: Gd<PackedScene> = load(&form_config.path);
 
@@ -912,7 +1097,10 @@ impl Spell {
         self.handle_charge_to_shape();
         self.set_shape(shape);
         self.set_visibility(false);
-        let mut instantiated_scene = scene.instantiate().expect("Expected to be able to create scene").cast::<Node3D>();
+        let mut instantiated_scene = scene
+            .instantiate()
+            .expect("Expected to be able to create scene")
+            .cast::<Node3D>();
         instantiated_scene.set_name(FORM_NAME);
         instantiated_scene.set_basis(self.original_direction);
         self.base_mut().add_child(&instantiated_scene);
@@ -920,7 +1108,7 @@ impl Spell {
 
     fn undo_form(&mut self) {
         if self.form_set == false {
-            return
+            return;
         }
         self.form_set = false;
         let form: Gd<Node> = self.base_mut().get_node_as(FORM_NAME);
@@ -942,23 +1130,26 @@ impl Spell {
                     } else {
                         self.energy = energy_needed;
                     }
-                },
+                }
                 None => {}
             }
         }
     }
 
     fn update_natural_shape(&mut self) {
-        self.set_shape(Shape::Sphere(Sphere::from_volume(self.get_natural_volume(self.energy))));
+        self.set_shape(Shape::Sphere(Sphere::from_volume(
+            self.get_natural_volume(self.energy),
+        )));
     }
 
     fn get_control_needed_for_shape(&self, shape_option: Option<Shape>) -> f64 {
         let shape = match shape_option {
             Some(ref shape) => shape,
-            None => return 0.0
+            None => return 0.0,
         };
         let volume_multiplier = shape.get_volume() / self.get_natural_volume(self.energy);
-        (E.powf(volume_multiplier - 1.0) + E.powf((1.0 / volume_multiplier) - 1.0) - 2.0) * self.energy
+        (E.powf(volume_multiplier - 1.0) + E.powf((1.0 / volume_multiplier) - 1.0) - 2.0)
+            * self.energy
     }
 
     fn get_control_needed(&self) -> f64 {
@@ -980,11 +1171,14 @@ impl HasShape for Spell {
         // Collision shape
         let mut collision_shape_exists = false;
 
-        let mut collision_shape = match self.base().try_get_node_as::<CollisionShape3D>(SPELL_COLLISION_SHAPE_NAME) {
+        let mut collision_shape = match self
+            .base()
+            .try_get_node_as::<CollisionShape3D>(SPELL_COLLISION_SHAPE_NAME)
+        {
             Some(collision_shape) => {
                 collision_shape_exists = true;
                 collision_shape
-            },
+            }
             None => {
                 let mut collision_shape = CollisionShape3D::new_alloc();
                 collision_shape.set_name(SPELL_COLLISION_SHAPE_NAME);
@@ -992,7 +1186,10 @@ impl HasShape for Spell {
             }
         };
 
-        match self.base().try_get_node_as::<CsgPrimitive3D>(SPELL_CSG_SHAPE_NAME) {
+        match self
+            .base()
+            .try_get_node_as::<CsgPrimitive3D>(SPELL_CSG_SHAPE_NAME)
+        {
             Some(csg) => csg.free(),
             None => {}
         };
@@ -1024,12 +1221,16 @@ impl HasShape for Spell {
                 csg_sphere.set_radius(sphere.radius as f32);
                 csg_sphere.set_material(&csg_material);
                 self.base_mut().add_child(&csg_sphere.upcast::<Node>());
-            },
+            }
             Shape::Cube(cube) => {
                 // Creating box shape
                 let mut shape = BoxShape3D::new_gd();
                 shape.set_name(SPELL_SHAPE_NAME);
-                let box_size = Vector3 { x: cube.x as f32, y: cube.y as f32, z: cube.z as f32 };
+                let box_size = Vector3 {
+                    x: cube.x as f32,
+                    y: cube.y as f32,
+                    z: cube.z as f32,
+                };
                 shape.set_size(box_size);
                 collision_shape.set_shape(&shape.upcast::<Shape3D>());
                 collision_shape.set_basis(self.original_direction);
@@ -1075,38 +1276,59 @@ impl Spell {
 
     /// Checks instructions against the component catalogue to see if the player is allowed to cast all components in the spell and with the parameters entered
     #[func]
-    fn check_allowed_to_cast(instructions_json: GString, component_catalogue_path: GString) -> Dictionary {
-        let component_catalogue: ComponentCatalogue = godot_json_saver::from_path(&component_catalogue_path.to_string()).unwrap();
-        let (allowed_to_cast, denial_reason) = match Spell::internal_check_allowed_to_cast(Spell::translate_instructions(&instructions_json), &component_catalogue) {
+    fn check_allowed_to_cast(
+        instructions_json: GString,
+        component_catalogue_path: GString,
+    ) -> Dictionary {
+        let component_catalogue: ComponentCatalogue =
+            godot_json_saver::from_path(&component_catalogue_path.to_string()).unwrap();
+        let (allowed_to_cast, denial_reason) = match Spell::internal_check_allowed_to_cast(
+            Spell::translate_instructions(&instructions_json),
+            &component_catalogue,
+        ) {
             Ok(_) => (true, ""),
-            Err(error_message) => (false, error_message)
+            Err(error_message) => (false, error_message),
         };
-        return dict! {"allowed_to_cast": allowed_to_cast, "denial_reason": denial_reason}
+        return dict! {"allowed_to_cast": allowed_to_cast, "denial_reason": denial_reason};
     }
 
     #[func]
     fn add_component(&mut self, component: GString) {
-        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string())
+            .expect("Component doesn't exist");
         let number_of_parameters = Spell::get_number_of_component_parameters(&component_code);
         let mut parameter_restrictions: Vec<Vec<&str>> = Vec::new();
         for _ in 0..number_of_parameters {
             parameter_restrictions.push(vec!["ANY"]);
         }
-        Spell::add_component_to_component_catalogue(component_code, parameter_restrictions, &mut self.component_catalogue);
+        Spell::add_component_to_component_catalogue(
+            component_code,
+            parameter_restrictions,
+            &mut self.component_catalogue,
+        );
     }
 
     #[func]
     fn remove_component(&mut self, component: GString) {
-        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
-        self.component_catalogue.component_catalogue.remove(&component_code);
+        let component_code = spelltranslator::get_component_num(&component.to_string())
+            .expect("Component doesn't exist");
+        self.component_catalogue
+            .component_catalogue
+            .remove(&component_code);
     }
 
     #[func]
     fn add_restricted_component(&mut self, component: GString, parameter_restrictions: GString) {
-        let component_code = spelltranslator::get_component_num(&component.to_string()).expect("Component doesn't exist");
+        let component_code = spelltranslator::get_component_num(&component.to_string())
+            .expect("Component doesn't exist");
         let string_parameter_restrictions = parameter_restrictions.to_string();
-        let parameter_restrictions: Vec<Vec<&str>> = serde_json::from_str(&string_parameter_restrictions).expect("Couldn't parse JSON");
-        Spell::add_component_to_component_catalogue(component_code, parameter_restrictions, &mut self.component_catalogue);
+        let parameter_restrictions: Vec<Vec<&str>> =
+            serde_json::from_str(&string_parameter_restrictions).expect("Couldn't parse JSON");
+        Spell::add_component_to_component_catalogue(
+            component_code,
+            parameter_restrictions,
+            &mut self.component_catalogue,
+        );
     }
 
     #[func]
@@ -1117,14 +1339,16 @@ impl Spell {
             Ok(serde_json::Value::Object(efficiency_levels_object)) => {
                 let mut temp_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiency_levels_object {
-                    if let (Ok(parsed_key), Some(parsed_value)) = (key.parse::<u64>(), value.as_f64()) {
+                    if let (Ok(parsed_key), Some(parsed_value)) =
+                        (key.parse::<u64>(), value.as_f64())
+                    {
                         temp_hashmap.insert(parsed_key, parsed_value);
                     }
                 }
                 self.component_efficiency_levels = temp_hashmap;
-            },
+            }
             Ok(_) => panic!("Invalid: Must be dictionary"),
-            Err(_) => panic!("Invalid Json")
+            Err(_) => panic!("Invalid Json"),
         }
     }
 
@@ -1136,15 +1360,17 @@ impl Spell {
             Ok(serde_json::Value::Object(efficiency_levels_object)) => {
                 let mut return_hashmap: HashMap<u64, f64> = HashMap::new();
                 for (key, value) in efficiency_levels_object {
-                    if let (Some(parsed_key), Some(parsed_value)) = (spelltranslator::get_component_num(&key), value.as_f64()) {
+                    if let (Some(parsed_key), Some(parsed_value)) =
+                        (spelltranslator::get_component_num(&key), value.as_f64())
+                    {
                         return_hashmap.insert(parsed_key, parsed_value);
                     }
                 }
                 let json_object: serde_json::Value = json!(return_hashmap);
                 GString::from(json_object.to_string())
-            },
+            }
             Ok(_) => panic!("Invalid: Must be dictionary"),
-            Err(_) => panic!("Invalid Json")
+            Err(_) => panic!("Invalid Json"),
         }
     }
 
@@ -1159,15 +1385,20 @@ impl Spell {
     fn get_bytecode_instructions(instructions_json: GString) -> Dictionary {
         // Returns a dictionary of the instructions and successful
         let config = saver::Config::get_config().unwrap_or_else(|err| {
-            godot_warn!("Config.toml couldn't be opened, so custom_translation can't be used: {err}");
+            godot_warn!(
+                "Config.toml couldn't be opened, so custom_translation can't be used: {err}"
+            );
             Config::default()
         });
 
-        let (instructions, successful, error_message) = match spelltranslator::parse_spell(&instructions_json.to_string(), Some(config.custom_translation)) {
+        let (instructions, successful, error_message) = match spelltranslator::parse_spell(
+            &instructions_json.to_string(),
+            Some(config.custom_translation),
+        ) {
             Ok(succesful_instructions) => (succesful_instructions, true, GString::new()),
-            Err(error) => (Vec::new(), false, GString::from(error))
+            Err(error) => (Vec::new(), false, GString::from(error)),
         };
-        return dict!{"instructions": GString::from(serde_json::to_string(&instructions).expect("Failed to parse instructions into json")), "successful": successful, "error_message": error_message}
+        return dict! {"instructions": GString::from(serde_json::to_string(&instructions).expect("Failed to parse instructions into json")), "successful": successful, "error_message": error_message};
     }
 
     #[func]
@@ -1191,8 +1422,9 @@ impl Spell {
     fn component_cast(component_code: u64, efficiency_increase: f64);
 }
 
-mod boolean_logic { // 100 = true, 101 = false
-    use super::{TRUE, FALSE};
+mod boolean_logic {
+    // 100 = true, 101 = false
+    use super::{FALSE, TRUE};
 
     pub fn and(a: u64, b: u64) -> Result<u64, &'static str> {
         match (a, b) {
@@ -1200,7 +1432,7 @@ mod boolean_logic { // 100 = true, 101 = false
             (TRUE, FALSE) => Ok(FALSE),
             (FALSE, TRUE) => Ok(FALSE),
             (FALSE, FALSE) => Ok(FALSE),
-            _ => Err("Boolean logic can only compare booleans")
+            _ => Err("Boolean logic can only compare booleans"),
         }
     }
 
@@ -1210,7 +1442,7 @@ mod boolean_logic { // 100 = true, 101 = false
             (TRUE, FALSE) => Ok(TRUE),
             (FALSE, TRUE) => Ok(TRUE),
             (FALSE, FALSE) => Ok(FALSE),
-            _ => Err("Boolean logic can only compare booleans")
+            _ => Err("Boolean logic can only compare booleans"),
         }
     }
 
@@ -1220,7 +1452,7 @@ mod boolean_logic { // 100 = true, 101 = false
             (TRUE, FALSE) => Ok(TRUE),
             (FALSE, TRUE) => Ok(TRUE),
             (FALSE, FALSE) => Ok(FALSE),
-            _ => Err("Boolean logic can only compare booleans")
+            _ => Err("Boolean logic can only compare booleans"),
         }
     }
 
@@ -1228,14 +1460,14 @@ mod boolean_logic { // 100 = true, 101 = false
         match a {
             TRUE => Ok(FALSE),
             FALSE => Ok(TRUE),
-            _ => Err("Not can only be used on booleans")
+            _ => Err("Not can only be used on booleans"),
         }
     }
 
     pub fn bool_to_num(boolean: bool) -> u64 {
         match boolean {
             true => TRUE,
-            false => FALSE
+            false => FALSE,
         }
     }
 
@@ -1243,51 +1475,66 @@ mod boolean_logic { // 100 = true, 101 = false
         match num {
             TRUE => Ok(true),
             FALSE => Ok(false),
-            _ => Err("Invalid number: Cannot translate to boolean")
+            _ => Err("Invalid number: Cannot translate to boolean"),
         }
     }
 }
 
 mod rpn_operations {
-    use super::{NUMBER_LITERAL, TRUE, FALSE};
+    use super::{FALSE, NUMBER_LITERAL, TRUE};
 
     pub fn binary_operation<T>(rpn_stack: &mut Vec<u64>, operation: T) -> Result<(), &'static str>
     where
-        T: FnOnce(u64, u64) -> Result<u64, &'static str>
+        T: FnOnce(u64, u64) -> Result<u64, &'static str>,
     {
         let bool_two = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
         let bool_one = rpn_stack.pop().ok_or_else(|| "Expected value to compare")?;
         match operation(bool_one, bool_two) {
             Ok(num) => rpn_stack.push(num),
-            Err(err) => return Err(err)
+            Err(err) => return Err(err),
         };
         Ok(())
     }
 
     pub fn compare_operation<T>(rpn_stack: &mut Vec<u64>, operation: T) -> Result<(), &'static str>
     where
-        T: FnOnce(f64, f64) -> bool
+        T: FnOnce(f64, f64) -> bool,
     {
-        let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-        let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-        let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-        let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
+        let argument_two =
+            f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+        let _ = rpn_stack
+            .pop()
+            .ok_or_else(|| "Expected number literal opcode")?;
+        let argument_one =
+            f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+        let _ = rpn_stack
+            .pop()
+            .ok_or_else(|| "Expected number literal opcode")?;
         match operation(argument_one, argument_two) {
             true => rpn_stack.push(TRUE),
-            false => rpn_stack.push(FALSE)
+            false => rpn_stack.push(FALSE),
         };
         Ok(())
     }
 
     pub fn maths_operation<T>(rpn_stack: &mut Vec<u64>, operation: T) -> Result<(), &'static str>
     where
-        T: FnOnce(f64, f64) -> f64
+        T: FnOnce(f64, f64) -> f64,
     {
-        let argument_two = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-        let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-        let argument_one = f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
-        let _ = rpn_stack.pop().ok_or_else(|| "Expected number literal opcode")?;
-        rpn_stack.extend(vec![NUMBER_LITERAL, f64::to_bits(operation(argument_one, argument_two))]);
+        let argument_two =
+            f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+        let _ = rpn_stack
+            .pop()
+            .ok_or_else(|| "Expected number literal opcode")?;
+        let argument_one =
+            f64::from_bits(rpn_stack.pop().ok_or_else(|| "Expected value to compare")?);
+        let _ = rpn_stack
+            .pop()
+            .ok_or_else(|| "Expected number literal opcode")?;
+        rpn_stack.extend(vec![
+            NUMBER_LITERAL,
+            f64::to_bits(operation(argument_one, argument_two)),
+        ]);
         Ok(())
     }
 }

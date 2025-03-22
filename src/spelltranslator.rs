@@ -1,6 +1,14 @@
+use crate::{
+    boolean_logic,
+    codes::{
+        attributecodes::*, component_specific_codes::*, componentcodes::*, datatypes::*, opcodes::*,
+    },
+    rpn_operations,
+    saver::StringCustomTranslation,
+    ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP,
+};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::{boolean_logic, codes::{attributecodes::*, componentcodes::*, opcodes::*, datatypes::*, component_specific_codes::*}, saver::StringCustomTranslation, rpn_operations, ReturnType, Spell, COMPONENT_TO_FUNCTION_MAP};
 
 use godot::prelude::godot_warn;
 
@@ -40,12 +48,12 @@ lazy_static! {
 
 enum Datatype {
     List(List),
-    Boolean
+    Boolean,
 }
 
 struct List {
     datatype: u64,
-    size: usize
+    size: usize,
 }
 
 lazy_static! {
@@ -95,10 +103,16 @@ fn get_attribute_info(attribute_name: &str) -> Option<&(u64, Datatype)> {
 }
 
 fn get_string_translation(component_num: u64, string: &str) -> Option<u64> {
-    STRING_MAP.get(&component_num)?.get(&pad_name(string)).cloned()
+    STRING_MAP
+        .get(&component_num)?
+        .get(&pad_name(string))
+        .cloned()
 }
 
-pub fn parse_spell(spell_code: &str, string_custom_translation: Option<StringCustomTranslation>) -> Result<Vec<u64>, &'static str> {
+pub fn parse_spell(
+    spell_code: &str,
+    string_custom_translation: Option<StringCustomTranslation>,
+) -> Result<Vec<u64>, &'static str> {
     let custom_translation: HashMap<u64, HashMap<String, u64>> = match string_custom_translation {
         Some(translation) => {
             let mut trans_map: HashMap<u64, HashMap<String, u64>> = HashMap::new();
@@ -107,8 +121,11 @@ pub fn parse_spell(spell_code: &str, string_custom_translation: Option<StringCus
                 let component_num = match get_component_num(&component_name) {
                     Some(num) => num,
                     None => {
-                        godot_warn!("Component \"{}\" in custom_translation in config.toml doesn't exist", component_name);
-                        continue
+                        godot_warn!(
+                            "Component \"{}\" in custom_translation in config.toml doesn't exist",
+                            component_name
+                        );
+                        continue;
                     }
                 };
 
@@ -116,8 +133,8 @@ pub fn parse_spell(spell_code: &str, string_custom_translation: Option<StringCus
             }
 
             trans_map
-        },
-        None => HashMap::new()
+        }
+        None => HashMap::new(),
     };
 
     let mut instructions: Vec<u64> = vec![];
@@ -126,17 +143,34 @@ pub fn parse_spell(spell_code: &str, string_custom_translation: Option<StringCus
     let trimmed_spell_code = spell_code.trim();
     for line in trimmed_spell_code.lines() {
         let trimmed_line = line.trim();
-        if trimmed_line.ends_with(":") && trimmed_line.chars().take(trimmed_line.len() - 1).all(|character| character.is_alphanumeric() || character == '_' || character == ' ') {
-            match trimmed_line.trim_end_matches(':').split_whitespace().collect::<Vec<&str>>()[..] {
+        if trimmed_line.ends_with(":")
+            && trimmed_line
+                .chars()
+                .take(trimmed_line.len() - 1)
+                .all(|character| {
+                    character.is_alphanumeric() || character == '_' || character == ' '
+                })
+        {
+            match trimmed_line
+                .trim_end_matches(':')
+                .split_whitespace()
+                .collect::<Vec<&str>>()[..]
+            {
                 [WHEN_CREATED_NAME] => instructions.push(WHEN_CREATED_SECTION),
                 [REPEAT_NAME] => {
                     instructions.extend(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(1.0)]);
-                },
+                }
                 [REPEAT_NAME, "every", num] => {
-                    instructions.extend(vec![REPEAT_SECTION, NUMBER_LITERAL, num.parse::<u64>().map(|num| f64::to_bits(num as f64)).map_err(|_| "Invalid value found after keyword \"every\"")?]);
-                },
+                    instructions.extend(vec![
+                        REPEAT_SECTION,
+                        NUMBER_LITERAL,
+                        num.parse::<u64>()
+                            .map(|num| f64::to_bits(num as f64))
+                            .map_err(|_| "Invalid value found after keyword \"every\"")?,
+                    ]);
+                }
                 [ABOUT_NAME] => instructions.push(ABOUT_SECTION),
-                _ => return Err("Invalid section name")
+                _ => return Err("Invalid section name"),
             };
             in_section = instructions.last().copied();
         } else {
@@ -145,38 +179,44 @@ pub fn parse_spell(spell_code: &str, string_custom_translation: Option<StringCus
             }
 
             if Some(ABOUT_SECTION) == in_section {
-                if trimmed_line.contains('=') { // Indicates an assignment of about section data
+                if trimmed_line.contains('=') {
+                    // Indicates an assignment of about section data
                     instructions.extend(parse_about_line(trimmed_line)?);
-                    continue
+                    continue;
                 } else if trimmed_line == "" {
-                    continue
+                    continue;
                 } else {
-                    return Err("Expected attribute in about section")
+                    return Err("Expected attribute in about section");
                 }
             }
-            
+
             // If in section, parse code
-            if trimmed_line.ends_with(")") { // Checking to see if component
+            if trimmed_line.ends_with(")") {
+                // Checking to see if component
                 instructions.extend(parse_component(trimmed_line, Some(&custom_translation))?);
-            } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") { // Checking for if statement
+            } else if trimmed_line.starts_with("if ") && trimmed_line.ends_with("{") {
+                // Checking for if statement
                 instructions.push(IF); // Indicates if statement
-                instructions.extend(parse_logic(&trimmed_line[3..trimmed_line.len() - 1], Some(&custom_translation))?);
+                instructions.extend(parse_logic(
+                    &trimmed_line[3..trimmed_line.len() - 1],
+                    Some(&custom_translation),
+                )?);
                 instructions.push(END_OF_SCOPE); // Indicates end of scope for logic
                 expected_closing_brackets += 1;
             } else if expected_closing_brackets > 0 && trimmed_line == "}" {
                 instructions.push(END_OF_SCOPE);
                 expected_closing_brackets -= 1;
             } else if trimmed_line == "" {
-                continue
+                continue;
             } else {
-                return Err("Not acceptable statement")
+                return Err("Not acceptable statement");
             }
         }
     }
     if expected_closing_brackets == 0 {
-        return Ok(instructions)
+        return Ok(instructions);
     } else {
-        return Err("Expected closing bracket(s)")
+        return Err("Expected closing bracket(s)");
     }
 }
 
@@ -189,21 +229,23 @@ fn get_precedence(operator: &str) -> u64 {
         "*" | "/" => 4,
         "^" => 5,
         "not" => 6,
-        _ => panic!("Not valid operator")
+        _ => panic!("Not valid operator"),
     }
 }
 
 #[derive(PartialEq, Eq)]
 enum Direction {
     Left,
-    Right
+    Right,
 }
 
 fn get_associative_direction(operator: &str) -> Direction {
     match operator {
-        "and" | "or" | "xor" | "+" | "-" | "*" | "/" | "^" | "=" | "==" | ">" | "<" => Direction::Left,
+        "and" | "or" | "xor" | "+" | "-" | "*" | "/" | "^" | "=" | "==" | ">" | "<" => {
+            Direction::Left
+        }
         "not" => Direction::Right,
-        _ => panic!("Not valid operator")
+        _ => panic!("Not valid operator"),
     }
 }
 
@@ -213,7 +255,7 @@ enum Token {
     Boolean(String),
     Component(String),
     OpenBracket,
-    CloseBracket
+    CloseBracket,
 }
 
 fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
@@ -227,11 +269,11 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
         match character {
             ' ' => {
                 characters.next();
-            },
+            }
             '(' => {
                 tokens.push(Token::OpenBracket);
                 characters.next();
-            },
+            }
             ')' => {
                 tokens.push(Token::CloseBracket);
                 if close_extra_bracket > 0 {
@@ -239,7 +281,7 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                     close_extra_bracket -= 1;
                 }
                 characters.next();
-            },
+            }
             '+' | '*' | '/' | '^' | '=' | '>' | '<' => {
                 let mut opcode = String::new();
                 opcode.push(characters.next().unwrap());
@@ -247,17 +289,17 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                     opcode.push(characters.next().unwrap());
                 }
                 tokens.push(Token::Opcode(opcode));
-            },
+            }
             '-' => {
                 // Standardises all minus signs to be a subtraction
                 // If next character is - or +, collapse into one character
                 // If last token was value, push plus
                 // Then, push (0 -
                 // If number or component make close_bracket = true
-                    // In number, add closing bracket if true
-                    // In component, add extra closing bracket if true
+                // In number, add closing bracket if true
+                // In component, add extra closing bracket if true
                 // If open bracket, close_extra_bracket += 1
-                    // In closing bracket, add another closing bracket and decrease by one if greater than zero
+                // In closing bracket, add another closing bracket and decrease by one if greater than zero
 
                 // So ---(5 - (3 + 2)) = (0 - (5 + (0 - (3 + 2))))
 
@@ -274,8 +316,9 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                     }
                 }
 
-                if minus_count % 2 == 0 { // if overall positive, move to next character in loop
-                    continue
+                if minus_count % 2 == 0 {
+                    // if overall positive, move to next character in loop
+                    continue;
                 }
 
                 if last_token_was_value {
@@ -288,7 +331,8 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
 
                 let mut at_least_one_loop = false;
                 while let Some(&next_character) = characters.peek() {
-                    if next_character.is_alphanumeric() { // If is number or character as if character we assume it's a component
+                    if next_character.is_alphanumeric() {
+                        // If is number or character as if character we assume it's a component
                         close_bracket = true;
                         at_least_one_loop = true;
                         break;
@@ -296,16 +340,16 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                         close_extra_bracket += 1;
                         at_least_one_loop = true;
                         break;
-                    } else if next_character == ' '{
+                    } else if next_character == ' ' {
                         characters.next();
                     } else {
-                        return Err("Expected valid character after minus sign")
+                        return Err("Expected valid character after minus sign");
                     }
                 }
                 if !at_least_one_loop {
-                    return Err("Expected character after minus sign")
+                    return Err("Expected character after minus sign");
                 }
-            },
+            }
             'a'..='z' | 'A'..='Z' | '_' => {
                 let mut opcode = String::new();
                 while let Some(&letter) = characters.peek() {
@@ -316,7 +360,8 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                         break;
                     }
                 }
-                if let Some('(') = characters.peek() { // Is component
+                if let Some('(') = characters.peek() {
+                    // Is component
                     opcode.push(characters.next().unwrap()); // Push OpenBracket
                     let mut expected_closing_brackets = 1;
                     loop {
@@ -329,7 +374,11 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                             expected_closing_brackets += 1;
                         } else {
                             // Push parameter characters
-                            opcode.push(characters.next().ok_or("Expected closing bracket for component")?);
+                            opcode.push(
+                                characters
+                                    .next()
+                                    .ok_or("Expected closing bracket for component")?,
+                            );
                         }
                         if expected_closing_brackets == 0 {
                             tokens.push(Token::Component(opcode));
@@ -346,7 +395,7 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                 } else {
                     tokens.push(Token::Opcode(opcode));
                 }
-            },
+            }
             '0'..='9' => {
                 let mut decimal_point_found = false;
                 let mut number = String::new();
@@ -356,7 +405,7 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                         characters.next();
                     } else if number_character == '.' {
                         if decimal_point_found {
-                            return Err("Cannot have two decimal points in number")
+                            return Err("Cannot have two decimal points in number");
                         } else {
                             number.push(number_character);
                             characters.next();
@@ -372,14 +421,16 @@ fn tokenise(conditions: &str) -> Result<Vec<Token>, &'static str> {
                     tokens.push(Token::CloseBracket);
                     close_bracket = false;
                 }
-            },
-            _ => return Err("Unexpected character in conditions")
+            }
+            _ => return Err("Unexpected character in conditions"),
         }
     }
-    return Ok(tokens)
+    return Ok(tokens);
 }
 
-fn test_execute_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u64>) -> Result<Vec<u64>, &'static str> {
+fn test_execute_component<'a>(
+    instructions_iter: &mut impl Iterator<Item = &'a u64>,
+) -> Result<Vec<u64>, &'static str> {
     let component_code = instructions_iter.next().ok_or("expected component")?;
     let number_of_component_parameters = Spell::get_number_of_component_parameters(component_code);
     let mut parameters: Vec<u64> = vec![];
@@ -390,22 +441,24 @@ fn test_execute_component<'a>(instructions_iter: &mut impl Iterator<Item = &'a u
             TRUE | FALSE => parameters.push(parameter),
             NUMBER_LITERAL => {
                 parameters.push(parameter);
-                parameters.push(*instructions_iter.next().ok_or("Expected number after number literal opcode")?);
-            },
+                parameters.push(
+                    *instructions_iter
+                        .next()
+                        .ok_or("Expected number after number literal opcode")?,
+                );
+            }
             COMPONENT => parameters.extend(test_execute_component(instructions_iter)?),
-            _ => return Err("Invalid parameter")
+            _ => return Err("Invalid parameter"),
         }
     }
 
     return match COMPONENT_TO_FUNCTION_MAP.get(component_code) {
-        Some((_, _, return_type)) => {
-            match *return_type {
-                ReturnType::Float => Ok(vec![NUMBER_LITERAL, 0]),
-                ReturnType::Boolean => Ok(vec![TRUE]),
-                ReturnType::None => return Err("Expected return from component")
-            }
+        Some((_, _, return_type)) => match *return_type {
+            ReturnType::Float => Ok(vec![NUMBER_LITERAL, 0]),
+            ReturnType::Boolean => Ok(vec![TRUE]),
+            ReturnType::None => return Err("Expected return from component"),
         },
-        None => return Err("Component does not exist")
+        None => return Err("Component does not exist"),
     };
 }
 
@@ -417,20 +470,26 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
         match if_bits {
             END_OF_SCOPE => break,
             TRUE | FALSE => rpn_stack.push(if_bits), // true and false
-            NUMBER_LITERAL => rpn_stack.extend(vec![NUMBER_LITERAL, *instructions_iter.next().ok_or("Expected following value")?]), // if 102, next bits are a number literal
+            NUMBER_LITERAL => rpn_stack.extend(vec![
+                NUMBER_LITERAL,
+                *instructions_iter.next().ok_or("Expected following value")?,
+            ]), // if 102, next bits are a number literal
             COMPONENT => rpn_stack.extend(test_execute_component(&mut instructions_iter)?), // Component
             AND => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::and)?, // And statement
             OR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::or)?, // Or statement
-            NOT => { // Not statement
+            NOT => {
+                // Not statement
                 let bool_one = rpn_stack.pop().ok_or("Expected value to compare")?;
                 rpn_stack.push(boolean_logic::not(bool_one)?);
-            },
+            }
             XOR => rpn_operations::binary_operation(&mut rpn_stack, boolean_logic::xor)?, // Xor statement
-            EQUALS => { // Equals statement
+            EQUALS => {
+                // Equals statement
                 let argument_two = rpn_stack.pop().ok_or("Expected value to compare")?;
                 let opcode_or_bool = rpn_stack.pop().ok_or("Expected value to compare")?;
                 if opcode_or_bool == NUMBER_LITERAL {
-                    let argument_one = f64::from_bits(rpn_stack.pop().ok_or("Expected value to compare")?);
+                    let argument_one =
+                        f64::from_bits(rpn_stack.pop().ok_or("Expected value to compare")?);
                     let _ = rpn_stack.pop().ok_or("Expected number literal opcode")?;
                     if argument_one == f64::from_bits(argument_two) {
                         rpn_stack.push(TRUE);
@@ -444,21 +503,24 @@ fn test_logic(logic: &Vec<u64>) -> Result<(), &'static str> {
                         rpn_stack.push(FALSE);
                     }
                 }
-            },
+            }
             GREATER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a > b)?, // Greater than
             LESSER_THAN => rpn_operations::compare_operation(&mut rpn_stack, |a, b| a < b)?, // Lesser than
             MULTIPLY => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a * b)?, // Multiply
-            DIVIDE => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b)?, // Divide
-            ADD => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b)?, // Add
+            DIVIDE => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a / b)?,   // Divide
+            ADD => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a + b)?,      // Add
             SUBTRACT => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a - b)?, // Subtract
             POWER => rpn_operations::maths_operation(&mut rpn_stack, |a, b| a.powf(b))?, // Power
-            _ => return Err("Opcode doesn't exist")
+            _ => return Err("Opcode doesn't exist"),
         }
     }
     Ok(())
 }
 
-fn parse_logic(conditions: &str, custom_translation: Option<&CustomTranslation>) -> Result<Vec<u64>, &'static str> {
+fn parse_logic(
+    conditions: &str,
+    custom_translation: Option<&CustomTranslation>,
+) -> Result<Vec<u64>, &'static str> {
     // Uses the Shunting Yard Algorithm to turn player written infix code into executeable postfix (RPN) code
     let mut holding_stack: Vec<String> = vec![];
     let mut output: Vec<String> = vec![];
@@ -467,43 +529,45 @@ fn parse_logic(conditions: &str, custom_translation: Option<&CustomTranslation>)
         match token {
             Token::Opcode(opcode) => {
                 while let Some(operator) = holding_stack.last() {
-                    if get_precedence(operator) > get_precedence(&opcode) ||
-                        (get_precedence(operator) == get_precedence(&opcode) && get_associative_direction(&opcode) == Direction::Left) {
-                            output.push(holding_stack.pop().unwrap());
-                        } else {
-                            break;
-                        }
+                    if get_precedence(operator) > get_precedence(&opcode)
+                        || (get_precedence(operator) == get_precedence(&opcode)
+                            && get_associative_direction(&opcode) == Direction::Left)
+                    {
+                        output.push(holding_stack.pop().unwrap());
+                    } else {
+                        break;
+                    }
                 }
                 holding_stack.push(opcode);
-            },
-            Token::OpenBracket => {
-                holding_stack.push("(".to_string())
-            },
+            }
+            Token::OpenBracket => holding_stack.push("(".to_string()),
             Token::CloseBracket => {
                 let mut operator = holding_stack.pop().ok_or("Expected opening bracket")?;
                 while operator != "(" {
                     output.push(operator);
                     operator = holding_stack.pop().ok_or("Expected opening bracket")?;
                 }
-            },
+            }
             Token::Boolean(boolean) => {
                 output.push(boolean);
-            },
+            }
             Token::Number(num) => {
                 if let Ok(_) = num.parse::<f64>() {
                     output.push(num);
                 } else {
-                    return Err("Invalid condition")
+                    return Err("Invalid condition");
                 }
             }
-            Token::Component(component) => {
-                output.push(component)
-            }
+            Token::Component(component) => output.push(component),
         }
     }
     // Pop remaining operators off holding stack and push to output
     for _ in 0..holding_stack.len() {
-        output.push(holding_stack.pop().ok_or_else(|| "Expected to work: Program logic fault")?);
+        output.push(
+            holding_stack
+                .pop()
+                .ok_or_else(|| "Expected to work: Program logic fault")?,
+        );
     }
     let mut bit_conditions: Vec<u64> = vec![];
     for condition in output {
@@ -528,35 +592,44 @@ fn parse_logic(conditions: &str, custom_translation: Option<&CustomTranslation>)
             }
             possible_component => {
                 // Attempt to see if is a component
-                if possible_component.ends_with(')') && !possible_component.starts_with('(') && possible_component.contains('(') {
+                if possible_component.ends_with(')')
+                    && !possible_component.starts_with('(')
+                    && possible_component.contains('(')
+                {
                     bit_conditions.extend(parse_component(possible_component, custom_translation)?);
                 } else {
-                    return Err("Invalid condition")
+                    return Err("Invalid condition");
                 }
             }
         }
     }
     match test_logic(&bit_conditions) {
         Ok(_) => Ok(bit_conditions),
-        Err(error) => Err(error)
+        Err(error) => Err(error),
     }
 }
 
-fn parse_component(component_call: &str, custom_translation: Option<&CustomTranslation>) -> Result<Vec<u64>, &'static str> {
+fn parse_component(
+    component_call: &str,
+    custom_translation: Option<&CustomTranslation>,
+) -> Result<Vec<u64>, &'static str> {
     let mut component_vec: Vec<u64> = vec![COMPONENT];
     let (component_name, parameters) = parse_component_string(component_call, custom_translation)?;
     let component_num = match get_component_num(&component_name) {
         Some(num) => num,
-        None => return Err("Invalid component: mapping doesn't exist")
+        None => return Err("Invalid component: mapping doesn't exist"),
     };
     component_vec.push(component_num);
     for parameter in parameters {
         component_vec.extend(parameter.to_bits(custom_translation)?)
     }
-    return Ok(component_vec)
+    return Ok(component_vec);
 }
 
-fn parse_component_string(component_call: &str, custom_translation: Option<&CustomTranslation>) -> Result<(String, Vec<Parameter>), &'static str> {
+fn parse_component_string(
+    component_call: &str,
+    custom_translation: Option<&CustomTranslation>,
+) -> Result<(String, Vec<Parameter>), &'static str> {
     if component_call.chars().last() != Some(')') {
         return Err("Invalid component: Must end with close bracket");
     }
@@ -572,7 +645,7 @@ fn parse_component_string(component_call: &str, custom_translation: Option<&Cust
             break;
             // Checking if character is alphabetic if not an open bracket.
         } else if !character.is_alphabetic() && character != '_' {
-            return Err("Invalid component: Name must be made up of letters")
+            return Err("Invalid component: Name must be made up of letters");
         }
 
         character_count += 1;
@@ -581,38 +654,48 @@ fn parse_component_string(component_call: &str, custom_translation: Option<&Cust
 
     // There needs to be an opening bracket, if there is none, returns error
     if found_opening_bracket == false {
-        return Err("Invalid component: Must have opening bracket")
+        return Err("Invalid component: Must have opening bracket");
     }
 
     // This line gets the parameters as a string and puts it into the variable parameters_string
-    if let Some(parameters_string) = component_call.get(character_count + 1..component_call.len() - 1) {
-        let parameters = collect_parameters(parameters_string, &component_name, custom_translation)?;
-        return Ok((component_name, parameters))
+    if let Some(parameters_string) =
+        component_call.get(character_count + 1..component_call.len() - 1)
+    {
+        let parameters =
+            collect_parameters(parameters_string, &component_name, custom_translation)?;
+        return Ok((component_name, parameters));
     } else {
-        return Err("Invalid component: Parameters not valid")
+        return Err("Invalid component: Parameters not valid");
     }
 }
 
 enum Parameter {
     Float(f64),
     Boolean(bool),
-    Component(String)
+    Component(String),
 }
 
 impl Parameter {
-    fn to_bits(&self, custom_translation: Option<&CustomTranslation>) -> Result<Vec<u64>, &'static str> {
+    fn to_bits(
+        &self,
+        custom_translation: Option<&CustomTranslation>,
+    ) -> Result<Vec<u64>, &'static str> {
         match self {
             Parameter::Float(float) => Ok(vec![NUMBER_LITERAL, float.to_bits()]),
             Parameter::Boolean(boolean) => match boolean {
                 true => Ok(vec![TRUE]),
-                false => Ok(vec![FALSE])
+                false => Ok(vec![FALSE]),
             },
-            Parameter::Component(component) => parse_component(&component, custom_translation)
+            Parameter::Component(component) => parse_component(&component, custom_translation),
         }
     }
 }
 
-fn collect_parameters(parameters_string: &str, component_name: &str, custom_translation: Option<&CustomTranslation>) -> Result<Vec<Parameter>, &'static str> {
+fn collect_parameters(
+    parameters_string: &str,
+    component_name: &str,
+    custom_translation: Option<&CustomTranslation>,
+) -> Result<Vec<Parameter>, &'static str> {
     let mut parameter = String::new();
     let mut parameters: Vec<Parameter> = vec![];
 
@@ -625,11 +708,11 @@ fn collect_parameters(parameters_string: &str, component_name: &str, custom_tran
         for character in parameters_string.chars() {
             if character != ',' {
                 parameter.push(character);
-                continue
+                continue;
             }
 
             if parameter.is_empty() {
-                return Err("Invalid parameters: Must have value before bracket")
+                return Err("Invalid parameters: Must have value before bracket");
             }
 
             if index >= encoded_types.len() {
@@ -637,7 +720,12 @@ fn collect_parameters(parameters_string: &str, component_name: &str, custom_tran
             }
 
             // Adding parameter to parameters vector
-            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num, custom_translation)?);
+            parameters.push(parse_parameter(
+                &parameter,
+                encoded_types[index],
+                component_num,
+                custom_translation,
+            )?);
             index += 1;
 
             // Clear parameter string so next one can be recorded
@@ -649,94 +737,135 @@ fn collect_parameters(parameters_string: &str, component_name: &str, custom_tran
             if index >= encoded_types.len() {
                 return Err("Invalid parameters: More parameters than expected");
             }
-            parameters.push(parse_parameter(&parameter, encoded_types[index], component_num, custom_translation)?);
+            parameters.push(parse_parameter(
+                &parameter,
+                encoded_types[index],
+                component_num,
+                custom_translation,
+            )?);
         }
 
         if parameters.len() < encoded_types.len() {
-            return Err("Invalid parameters: Missing parameters")
+            return Err("Invalid parameters: Missing parameters");
         } else if parameters.len() > encoded_types.len() {
-            return Err("Invalid parameters: More parameters than expected")
+            return Err("Invalid parameters: More parameters than expected");
         }
-
     } else {
         panic!("Expected component mapping")
     }
 
-    return Ok(parameters)
+    return Ok(parameters);
 }
 
-fn parse_parameter(parameter_string: &str, parameter_type: u64, component_num: u64, custom_translation: Option<&CustomTranslation>) -> Result<Parameter, &'static str> {
+fn parse_parameter(
+    parameter_string: &str,
+    parameter_type: u64,
+    component_num: u64,
+    custom_translation: Option<&CustomTranslation>,
+) -> Result<Parameter, &'static str> {
     let trimmed_parameter_string = parameter_string.trim();
 
     // Check if component
     if trimmed_parameter_string.ends_with(')') {
-        return Ok(Parameter::Component(trimmed_parameter_string.to_string()))
+        return Ok(Parameter::Component(trimmed_parameter_string.to_string()));
     }
 
-    if parameter_type == FLOAT && trimmed_parameter_string.starts_with('"') && trimmed_parameter_string.ends_with('"') {
-        let string = trimmed_parameter_string.strip_prefix('"').unwrap().strip_suffix('"').unwrap();
+    if parameter_type == FLOAT
+        && trimmed_parameter_string.starts_with('"')
+        && trimmed_parameter_string.ends_with('"')
+    {
+        let string = trimmed_parameter_string
+            .strip_prefix('"')
+            .unwrap()
+            .strip_suffix('"')
+            .unwrap();
         let float = match get_string_translation(component_num, string) {
             Some(translation) => translation as f64,
             None => {
                 let some_custom_translation = match custom_translation {
                     Some(translation) => translation,
-                    None => return Err("Couldn't parse parameter: string isn't a valid option")
+                    None => return Err("Couldn't parse parameter: string isn't a valid option"),
                 };
 
-                *some_custom_translation.get(&component_num).ok_or("Couldn't parse parameter: string isn't a valid option")?
-                    .get(string).ok_or("Couldn't parse parameter: string isn't a valid option")? as f64
+                *some_custom_translation
+                    .get(&component_num)
+                    .ok_or("Couldn't parse parameter: string isn't a valid option")?
+                    .get(string)
+                    .ok_or("Couldn't parse parameter: string isn't a valid option")?
+                    as f64
             }
         };
 
-        return Ok(Parameter::Float(float))
+        return Ok(Parameter::Float(float));
     }
 
     match parameter_type {
-        FLOAT => Ok(Parameter::Float(trimmed_parameter_string.parse::<f64>().map_err(|_| "Couldn't parse parameter: should be float")?)),
-        BOOLEAN => Ok(Parameter::Boolean(trimmed_parameter_string.parse::<bool>().map_err(|_| "Couldn't parse parameter: should be boolean")?)),
-        _ => panic!("Parameter type given doesn't exist")
+        FLOAT => Ok(Parameter::Float(
+            trimmed_parameter_string
+                .parse::<f64>()
+                .map_err(|_| "Couldn't parse parameter: should be float")?,
+        )),
+        BOOLEAN => Ok(Parameter::Boolean(
+            trimmed_parameter_string
+                .parse::<bool>()
+                .map_err(|_| "Couldn't parse parameter: should be boolean")?,
+        )),
+        _ => panic!("Parameter type given doesn't exist"),
     }
 }
 
-fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str>{
-    let (mut name, mut value) = equation.split_once('=').ok_or_else(|| "There must be an equals sign in an about line")?;
-    
+fn parse_about_line(equation: &str) -> Result<Vec<u64>, &'static str> {
+    let (mut name, mut value) = equation
+        .split_once('=')
+        .ok_or_else(|| "There must be an equals sign in an about line")?;
+
     name = name.trim();
     value = value.trim();
 
     let (mut attribute_line, datatype) = match get_attribute_info(name) {
         Some((attribute_num, datatype)) => (vec![*attribute_num], datatype),
-        None => return Err("Invalid attribute: attribute doesn't exist")
+        None => return Err("Invalid attribute: attribute doesn't exist"),
     };
 
     match datatype {
         Datatype::List(list) => {
-            let str_value_list = value.strip_prefix('[')
+            let str_value_list = value
+                .strip_prefix('[')
                 .and_then(|x| x.strip_suffix(']'))
                 .ok_or("Invalid value: Should be a list starting with [ and ending with ]")?
-                .split(',').map(str::trim).collect::<Vec<&str>>();
+                .split(',')
+                .map(str::trim)
+                .collect::<Vec<&str>>();
 
             if str_value_list.len() > list.size {
-                return Err("Invalid value: List is too long")
+                return Err("Invalid value: List is too long");
             }
             if str_value_list.len() < list.size {
-                return Err("Invalid value: List is too short")
+                return Err("Invalid value: List is too short");
             }
 
             if list.datatype == FLOAT {
-                attribute_line.extend(str_value_list.into_iter()
-                    .map(str::parse::<f64>)
-                    .collect::<Result<Vec<f64>, _>>()
-                    .map_err(|_| "Invalid value: value in this list is not a float")?.into_iter()
-                    .map(f64::to_bits)
-                    .collect::<Vec<u64>>());
-                return Ok(attribute_line)
+                attribute_line.extend(
+                    str_value_list
+                        .into_iter()
+                        .map(str::parse::<f64>)
+                        .collect::<Result<Vec<f64>, _>>()
+                        .map_err(|_| "Invalid value: value in this list is not a float")?
+                        .into_iter()
+                        .map(f64::to_bits)
+                        .collect::<Vec<u64>>(),
+                );
+                return Ok(attribute_line);
             }
 
             Err("The datatype used in the list is not supported")
-        },
+        }
         Datatype::Boolean => {
-            attribute_line.push(boolean_logic::bool_to_num(value.parse::<bool>().map_err(|_| "Expected boolean value")?));
+            attribute_line.push(boolean_logic::bool_to_num(
+                value
+                    .parse::<bool>()
+                    .map_err(|_| "Expected boolean value")?,
+            ));
             Ok(attribute_line)
         }
     }
@@ -754,67 +883,218 @@ mod tests {
 
     #[test]
     fn parse_basic_booleans() {
-        assert_eq!(parse_logic("true and false or true", None), Ok(vec![TRUE, FALSE, AND, TRUE, OR]));
+        assert_eq!(
+            parse_logic("true and false or true", None),
+            Ok(vec![TRUE, FALSE, AND, TRUE, OR])
+        );
     }
 
     #[test]
     fn parse_basic_spell() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(1, 1, 1)", None), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
+        assert_eq!(
+            parse_spell("when_created:\ngive_velocity(1, 1, 1)", None),
+            Ok(vec![
+                WHEN_CREATED_SECTION,
+                COMPONENT,
+                GIVE_VELOCITY,
+                NUMBER_LITERAL,
+                f64::to_bits(1.0),
+                NUMBER_LITERAL,
+                f64::to_bits(1.0),
+                NUMBER_LITERAL,
+                f64::to_bits(1.0)
+            ])
+        )
     }
 
     #[test]
     fn parse_basic_repeat() {
-        assert_eq!(parse_spell("repeat:\ngive_velocity(1,1,1)", None), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(1.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, f64::to_bits(1.0)]))
+        assert_eq!(
+            parse_spell("repeat:\ngive_velocity(1,1,1)", None),
+            Ok(vec![
+                REPEAT_SECTION,
+                NUMBER_LITERAL,
+                f64::to_bits(1.0),
+                COMPONENT,
+                GIVE_VELOCITY,
+                NUMBER_LITERAL,
+                f64::to_bits(1.0),
+                NUMBER_LITERAL,
+                f64::to_bits(1.0),
+                NUMBER_LITERAL,
+                f64::to_bits(1.0)
+            ])
+        )
     }
 
     #[test]
     fn parse_advanced_repeat() {
-        assert_eq!(parse_spell("repeat every 2:\ngive_velocity(0,0,0)", None), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(2.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(
+            parse_spell("repeat every 2:\ngive_velocity(0,0,0)", None),
+            Ok(vec![
+                REPEAT_SECTION,
+                NUMBER_LITERAL,
+                f64::to_bits(2.0),
+                COMPONENT,
+                GIVE_VELOCITY,
+                NUMBER_LITERAL,
+                0,
+                NUMBER_LITERAL,
+                0,
+                NUMBER_LITERAL,
+                0
+            ])
+        )
     }
 
     #[test]
     fn parse_advanced_repeat_with_irregular_spacing() {
-        assert_eq!(parse_spell("repeat  every      3:\ngive_velocity(0,0,0)", None), Ok(vec![REPEAT_SECTION, NUMBER_LITERAL, f64::to_bits(3.0), COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(
+            parse_spell("repeat  every      3:\ngive_velocity(0,0,0)", None),
+            Ok(vec![
+                REPEAT_SECTION,
+                NUMBER_LITERAL,
+                f64::to_bits(3.0),
+                COMPONENT,
+                GIVE_VELOCITY,
+                NUMBER_LITERAL,
+                0,
+                NUMBER_LITERAL,
+                0,
+                NUMBER_LITERAL,
+                0
+            ])
+        )
     }
-
 
     #[test]
     fn parse_spell_color() {
-        assert_eq!(parse_about_line("color = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]));
-        assert_eq!(parse_about_line("colour = [0.4, 0, 0.8]"), Ok(vec![COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]));
+        assert_eq!(
+            parse_about_line("color = [0.4, 0, 0.8]"),
+            Ok(vec![COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)])
+        );
+        assert_eq!(
+            parse_about_line("colour = [0.4, 0, 0.8]"),
+            Ok(vec![COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)])
+        );
     }
-    
+
     #[test]
     fn parse_invalid_spell_color() {
-        assert_eq!(parse_about_line("color = [0.212, 1, 0.3,]"), Err("Invalid value: List is too long"));
-        assert_eq!(parse_about_line("color = 0.4, 0,284]"), Err("Invalid value: Should be a list starting with [ and ending with ]"));
-        assert_eq!(parse_about_line("color = [0.4, 0,284"), Err("Invalid value: Should be a list starting with [ and ending with ]"));
-        assert_eq!(parse_about_line("color = [a, 0,284]"), Err("Invalid value: value in this list is not a float"));
+        assert_eq!(
+            parse_about_line("color = [0.212, 1, 0.3,]"),
+            Err("Invalid value: List is too long")
+        );
+        assert_eq!(
+            parse_about_line("color = 0.4, 0,284]"),
+            Err("Invalid value: Should be a list starting with [ and ending with ]")
+        );
+        assert_eq!(
+            parse_about_line("color = [0.4, 0,284"),
+            Err("Invalid value: Should be a list starting with [ and ending with ]")
+        );
+        assert_eq!(
+            parse_about_line("color = [a, 0,284]"),
+            Err("Invalid value: value in this list is not a float")
+        );
     }
 
     #[test]
     fn parse_spell_color_with_irregular_spacing() {
-        assert_eq!(parse_about_line("     color      =        [   0.212,    1,0.3]"), Ok(vec![COLOR, f64::to_bits(0.212), f64::to_bits(1.0), f64::to_bits(0.3)]));
+        assert_eq!(
+            parse_about_line("     color      =        [   0.212,    1,0.3]"),
+            Ok(vec![
+                COLOR,
+                f64::to_bits(0.212),
+                f64::to_bits(1.0),
+                f64::to_bits(0.3)
+            ])
+        );
     }
 
     #[test]
-    fn parse_about_section(){
-        assert_eq!(parse_spell("about:\ncolour = [0.4, 0, 0.8]", None), Ok(vec![ABOUT_SECTION, COLOR, f64::to_bits(0.4), 0, f64::to_bits(0.8)]))
+    fn parse_about_section() {
+        assert_eq!(
+            parse_spell("about:\ncolour = [0.4, 0, 0.8]", None),
+            Ok(vec![
+                ABOUT_SECTION,
+                COLOR,
+                f64::to_bits(0.4),
+                0,
+                f64::to_bits(0.8)
+            ])
+        )
     }
 
     #[test]
     fn parse_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}", None), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
+        assert_eq!(
+            parse_spell("when_created:\nif false {\ngive_velocity(1, 0, 0)\n}", None),
+            Ok(vec![
+                WHEN_CREATED_SECTION,
+                IF,
+                FALSE,
+                END_OF_SCOPE,
+                COMPONENT,
+                GIVE_VELOCITY,
+                NUMBER_LITERAL,
+                f64::to_bits(1.0),
+                NUMBER_LITERAL,
+                0,
+                NUMBER_LITERAL,
+                0,
+                END_OF_SCOPE
+            ])
+        )
     }
 
     #[test]
     fn parse_advanced_if_statement_spell() {
-        assert_eq!(parse_spell("when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}", None), Ok(vec![WHEN_CREATED_SECTION, IF, FALSE, COMPONENT, GET_TIME, NUMBER_LITERAL, f64::to_bits(5.0), GREATER_THAN, OR, END_OF_SCOPE, COMPONENT, GIVE_VELOCITY, NUMBER_LITERAL, f64::to_bits(1.0), NUMBER_LITERAL, 0, NUMBER_LITERAL, 0, END_OF_SCOPE]))
+        assert_eq!(
+            parse_spell(
+                "when_created:\nif false or get_time() > 5 {\ngive_velocity(1, 0, 0)\n}",
+                None
+            ),
+            Ok(vec![
+                WHEN_CREATED_SECTION,
+                IF,
+                FALSE,
+                COMPONENT,
+                GET_TIME,
+                NUMBER_LITERAL,
+                f64::to_bits(5.0),
+                GREATER_THAN,
+                OR,
+                END_OF_SCOPE,
+                COMPONENT,
+                GIVE_VELOCITY,
+                NUMBER_LITERAL,
+                f64::to_bits(1.0),
+                NUMBER_LITERAL,
+                0,
+                NUMBER_LITERAL,
+                0,
+                END_OF_SCOPE
+            ])
+        )
     }
 
     #[test]
     fn parse_component_as_parameter() {
-        assert_eq!(parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)", None), Ok(vec![WHEN_CREATED_SECTION, COMPONENT, GIVE_VELOCITY, COMPONENT, GET_TIME, NUMBER_LITERAL, 0, NUMBER_LITERAL, 0]))
+        assert_eq!(
+            parse_spell("when_created:\ngive_velocity(get_time(), 0, 0)", None),
+            Ok(vec![
+                WHEN_CREATED_SECTION,
+                COMPONENT,
+                GIVE_VELOCITY,
+                COMPONENT,
+                GET_TIME,
+                NUMBER_LITERAL,
+                0,
+                NUMBER_LITERAL,
+                0
+            ])
+        )
     }
 
     #[test]
@@ -827,8 +1107,8 @@ mod tests {
     fn compare_component_maps() {
         for value in COMPONENT_TO_NUM_MAP.values() {
             match COMPONENT_TO_FUNCTION_MAP.get(value) {
-                Some(_) => {},
-                None => panic!("Component code {} not in COMPONENT_TO_FUNCTION_MAP", value)
+                Some(_) => {}
+                None => panic!("Component code {} not in COMPONENT_TO_FUNCTION_MAP", value),
             }
         }
     }

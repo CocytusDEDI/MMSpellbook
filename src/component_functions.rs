@@ -1,97 +1,126 @@
 use godot::prelude::*;
 
-use crate::{Spell, codes::opcodes::*, codes::component_specific_codes::*, Shape, Sphere, Cube, HasShape};
+use crate::{
+    codes::component_specific_codes::*, codes::opcodes::*, Cube, HasShape, Shape, Spell, Sphere,
+};
 
 const APPLY_TO_SPELL_COEFFICIENT: f64 = 70.0;
 
 // Utility:
 
-pub fn give_velocity(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+pub fn give_velocity(
+    spell: &mut Spell,
+    parameters: &[u64],
+    should_execute: bool,
+) -> Option<Vec<u64>> {
     let x_speed: f32 = f64::from_bits(parameters[0]) as f32;
     let y_speed: f32 = f64::from_bits(parameters[1]) as f32;
     let z_speed: f32 = f64::from_bits(parameters[2]) as f32;
     if should_execute {
-        let new_velocity = spell.velocity + Vector3 {x: x_speed, y: y_speed, z: z_speed };
+        let new_velocity = spell.velocity
+            + Vector3 {
+                x: x_speed,
+                y: y_speed,
+                z: z_speed,
+            };
         spell.velocity = new_velocity;
-        return None
+        return None;
     }
 
-    return Some(vec![f64::to_bits(spell.energy * ((x_speed * x_speed + y_speed * y_speed + z_speed * z_speed) as f64).sqrt() / APPLY_TO_SPELL_COEFFICIENT)])
+    return Some(vec![f64::to_bits(
+        spell.energy * ((x_speed * x_speed + y_speed * y_speed + z_speed * z_speed) as f64).sqrt()
+            / APPLY_TO_SPELL_COEFFICIENT,
+    )]);
 }
 
 pub fn take_form(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     let form_code = f64::from_bits(parameters[0]) as u64;
 
     if !should_execute {
-        return Some(vec![f64::to_bits(spell.config.forms.get(&form_code).expect("Expected form code to map to a form").energy_required)])
+        return Some(vec![f64::to_bits(
+            spell
+                .config
+                .forms
+                .get(&form_code)
+                .expect("Expected form code to map to a form")
+                .energy_required,
+        )]);
     }
 
     spell.set_form(form_code);
-    return None
+    return None;
 }
 
 pub fn undo_form(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![0])
+        return Some(vec![0]);
     }
 
     spell.undo_form();
-    return None
+    return None;
 }
 
-pub fn recharge_to(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+pub fn recharge_to(
+    spell: &mut Spell,
+    parameters: &[u64],
+    should_execute: bool,
+) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![f64::to_bits(0.0)])
+        return Some(vec![f64::to_bits(0.0)]);
     }
 
     let energy_wanted = f64::from_bits(parameters[0]);
 
     if spell.energy >= energy_wanted {
-        return None
+        return None;
     }
 
     spell.energy_requested = energy_wanted - spell.energy;
 
-    return None
+    return None;
 }
 
 pub fn anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![f64::to_bits(0.0)])
+        return Some(vec![f64::to_bits(0.0)]);
     }
 
     if spell.anchored_to != None {
-        return None
+        return None;
     }
 
     spell.anchor();
 
-    return None
+    return None;
 }
 
-pub fn undo_anchor(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+pub fn undo_anchor(
+    spell: &mut Spell,
+    _parameters: &[u64],
+    should_execute: bool,
+) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![f64::to_bits(0.0)])
+        return Some(vec![f64::to_bits(0.0)]);
     }
 
     spell.undo_anchor();
 
-    return None
+    return None;
 }
 
 pub fn perish(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![f64::to_bits(0.0)])
+        return Some(vec![f64::to_bits(0.0)]);
     }
 
     spell.perish();
 
-    return None
+    return None;
 }
 
 pub fn take_shape(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![f64::to_bits(0.0)])
+        return Some(vec![f64::to_bits(0.0)]);
     }
 
     spell.undo_form();
@@ -103,71 +132,86 @@ pub fn take_shape(spell: &mut Spell, parameters: &[u64], should_execute: bool) -
 
     let shape = match shape_num {
         SPHERE => Shape::Sphere(Sphere { radius: size_1 }),
-        CUBE => Shape::Cube(Cube { x: size_1, y: size_2, z: size_3 }),
-        _ => panic!("Not a valid shape")
+        CUBE => Shape::Cube(Cube {
+            x: size_1,
+            y: size_2,
+            z: size_3,
+        }),
+        _ => panic!("Not a valid shape"),
     };
 
     spell.shape = Some(shape);
     spell.handle_charge_to_shape();
     spell.set_shape(shape);
 
-    return None
+    return None;
 }
 
-pub fn undo_shape(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
+pub fn undo_shape(
+    spell: &mut Spell,
+    _parameters: &[u64],
+    should_execute: bool,
+) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![f64::to_bits(0.0)])
+        return Some(vec![f64::to_bits(0.0)]);
     }
 
     spell.undo_form();
 
-    spell.set_shape(Shape::Sphere(Sphere::from_volume(spell.get_natural_volume(spell.energy))));
+    spell.set_shape(Shape::Sphere(Sphere::from_volume(
+        spell.get_natural_volume(spell.energy),
+    )));
 
-    return None
+    return None;
 }
 
 // Logic:
 
 pub fn get_time(spell: &mut Spell, _parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![NUMBER_LITERAL, f64::to_bits(0.1)]) // TODO: Should be set in config
+        return Some(vec![NUMBER_LITERAL, f64::to_bits(0.1)]); // TODO: Should be set in config
     }
 
     let current_time = match spell.time {
         Some(ref ms) => ms,
-        None => panic!("Time wasn't created")
+        None => panic!("Time wasn't created"),
     };
 
     let start_time = match spell.start_time {
         Some(ref ms) => ms,
-        None => panic!("Time wasn't created")
+        None => panic!("Time wasn't created"),
     };
 
-    return Some(vec![NUMBER_LITERAL, f64::to_bits((current_time.get_ticks_msec() - start_time) as f64 / 1000.0)])
+    return Some(vec![
+        NUMBER_LITERAL,
+        f64::to_bits((current_time.get_ticks_msec() - start_time) as f64 / 1000.0),
+    ]);
 }
 
 pub fn moving(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     // Static energy return
     if !should_execute {
-        return Some(vec![f64::to_bits(0.1)]) // TODO: Adjust energy requirements
+        return Some(vec![f64::to_bits(0.1)]); // TODO: Adjust energy requirements
     }
 
     let parameter_speed = f64::from_bits(parameters[0]);
 
-    if (spell.velocity.x.powi(2) + spell.velocity.y.powi(2) + spell.velocity.z.powi(2)).sqrt() >= parameter_speed as f32 {
-        return Some(vec![TRUE])
+    if (spell.velocity.x.powi(2) + spell.velocity.y.powi(2) + spell.velocity.z.powi(2)).sqrt()
+        >= parameter_speed as f32
+    {
+        return Some(vec![TRUE]);
     } else {
-        return Some(vec![FALSE])
+        return Some(vec![FALSE]);
     }
 }
 
 // Power:
 pub fn set_damage(spell: &mut Spell, parameters: &[u64], should_execute: bool) -> Option<Vec<u64>> {
     if !should_execute {
-        return Some(vec![f64::to_bits(0.0)])
+        return Some(vec![f64::to_bits(0.0)]);
     }
 
     spell.damage = f64::from_bits(parameters[0]);
 
-    return None
+    return None;
 }
