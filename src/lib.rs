@@ -992,6 +992,16 @@ impl Spell {
                             .expect("Expected boolean after charge_to_shape"),
                     )
                     .unwrap_or_else(|err| panic!("{err}"));
+                },
+                TARGET_SELF => {
+                    let parent = match self.base().get_parent() {
+                        Some(node) => node.cast::<MagicalEntity>(),
+                        None => panic!("Expected parent node"),
+                    };
+                    self.base_mut().set_position(parent.get_global_position());
+                    self.anchored_to = Some(parent);
+                    self.base_mut().set_as_top_level(false);
+                    self.set_visibility(false);
                 }
                 _ => panic!("Invalid attribute"),
             }
@@ -1423,7 +1433,6 @@ impl Spell {
 }
 
 mod boolean_logic {
-    // 100 = true, 101 = false
     use super::{FALSE, TRUE};
 
     pub fn and(a: u64, b: u64) -> Result<u64, &'static str> {

@@ -64,6 +64,7 @@ lazy_static! {
         attribute_map.insert(pad_name("color"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
         attribute_map.insert(pad_name("colour"), (COLOR, Datatype::List(List { datatype: FLOAT, size: 3 })));
         attribute_map.insert(pad_name("charge_to_shape"), (CHARGE_TO_SHAPE, Datatype::Boolean));
+        attribute_map.insert(pad_name("target_self"), (TARGET_SELF, Datatype::Boolean));
         attribute_map
     };
 }
@@ -112,7 +113,7 @@ fn get_string_translation(component_num: u64, string: &str) -> Option<u64> {
 pub fn parse_spell(
     spell_code: &str,
     string_custom_translation: Option<StringCustomTranslation>,
-) -> Result<Vec<u64>, &'static str> {
+) -> Result<Vec<u64>, String> {
     let custom_translation: HashMap<u64, HashMap<String, u64>> = match string_custom_translation {
         Some(translation) => {
             let mut trans_map: HashMap<u64, HashMap<String, u64>> = HashMap::new();
@@ -137,20 +138,23 @@ pub fn parse_spell(
         None => HashMap::new(),
     };
 
-    let mut instructions: Vec<u64> = vec![];
+    let mut instructions: Vec<u64> = Vec::new();
     let mut in_section = None;
     let mut expected_closing_brackets: usize = 0;
     let trimmed_spell_code = spell_code.trim();
     for line in trimmed_spell_code.lines() {
         let trimmed_line = line.trim();
-        if trimmed_line.ends_with(":")
-            && trimmed_line
+        if trimmed_line.ends_with(":") {
+            if !trimmed_line
                 .chars()
                 .take(trimmed_line.len() - 1)
                 .all(|character| {
                     character.is_alphanumeric() || character == '_' || character == ' '
                 })
-        {
+            {
+                return Err(format!("Invalid section name: {}", trimmed_line));
+            }
+
             match trimmed_line
                 .trim_end_matches(':')
                 .split_whitespace()
@@ -170,12 +174,12 @@ pub fn parse_spell(
                     ]);
                 }
                 [ABOUT_NAME] => instructions.push(ABOUT_SECTION),
-                _ => return Err("Invalid section name"),
+                _ => return Err(format!("Invalid section name: {}", trimmed_line)),
             };
             in_section = instructions.last().copied();
         } else {
             if let None = in_section {
-                return Err("Must begin with section statement");
+                return Err(String::from("Must begin with section statement"));
             }
 
             if Some(ABOUT_SECTION) == in_section {
@@ -186,7 +190,7 @@ pub fn parse_spell(
                 } else if trimmed_line == "" {
                     continue;
                 } else {
-                    return Err("Expected attribute in about section");
+                    return Err(String::from("Expected attribute in about section"));
                 }
             }
 
@@ -209,18 +213,18 @@ pub fn parse_spell(
             } else if trimmed_line == "" {
                 continue;
             } else {
-                return Err("Not acceptable statement");
+                return Err(format!("Not acceptable statement: {}", trimmed_line));
             }
         }
     }
     if expected_closing_brackets == 0 {
         return Ok(instructions);
     } else {
-        return Err("Expected closing bracket(s)");
+        return Err(String::from("Expected closing bracket(s)"));
     }
 }
 
-fn get_precedence(operator: &str) -> u64 {
+fn get_precedence(operator: &str) -> usize {
     match operator {
         "(" | ")" => 0,
         "and" | "or" | "xor" => 1,
